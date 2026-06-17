@@ -1,0 +1,24 @@
+# Node
+node_modules/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# 환경변수 / 시크릿
+.env
+app/.env
+
+# DB / 인덱스 / 산출물
+*.db
+app/rag/index/
+app/eval/results/
+
+# OS / IDE
+.DS_Store
+.idea/
+.vscode/

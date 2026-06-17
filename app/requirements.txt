@@ -1,0 +1,34 @@
+# Smart WMS Agent — Python dependencies (Phase 1)
+# 생성=Claude, 임베딩=OpenAI
+
+# LLM / 임베딩
+anthropic>=0.49
+openai>=1.40
+
+# Agent workflow
+langgraph>=0.2
+
+# RAG (벡터스토어)
+faiss-cpu>=1.8
+
+# Forecast & Simulation
+simpy>=4.1
+scikit-learn>=1.4
+pandas>=2.2
+numpy>=1.26
+
+# API
+fastapi>=0.111
+uvicorn[standard]>=0.30
+
+# UI & Visualization
+streamlit>=1.36
+plotly>=5.22
+
+# 설정
+python-dotenv>=1.0
+pydantic>=2.7
+pydantic-settings>=2.3
+
+# 테스트
+pytest>=8.2

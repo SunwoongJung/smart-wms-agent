@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Smart WMS Agent</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <div class="app">
+    <!-- 좌측: 대화 이력 (P7에서 기능화) -->
+    <aside class="sidebar">
+      <div class="side-head">
+        <span class="side-title">대화 이력</span>
+        <button class="btn-ghost" id="new-chat">+ 새 대화</button>
+      </div>
+      <input class="side-search" placeholder="대화 검색..." />
+      <div class="chat-list" id="chat-list"></div>
+      <div class="side-user">
+        <span class="avatar">SA</span>
+        <div><div class="u-name">Smart Admin</div><div class="u-meta">● 연결됨</div></div>
+      </div>
+    </aside>
+
+    <!-- 본문 -->
+    <main class="main">
+      <header class="topbar">
+        <div class="brand">
+          <span class="logo">📦</span>
+          <div>
+            <div class="brand-title">Smart WMS Agent</div>
+            <div class="brand-sub">창고실행 예측 (SimPy DES · 작업자/자재/장비 팀)</div>
+          </div>
+        </div>
+        <div class="top-right">
+          <span class="updated" id="updated">최근 갱신 : --:--:--</span>
+          <button class="icon-btn" id="refresh" title="새로고침">⟳</button>
+        </div>
+      </header>
+
+      <nav class="tabs">
+        <button class="tab" data-tab="chat">💬 Agent Chat</button>
+        <button class="tab" data-tab="kpi">📊 KPI Dashboard</button>
+        <button class="tab active" data-tab="sim">🧊 Warehouse Simulation</button>
+        <button class="tab" data-tab="approval">✓ Approval</button>
+      </nav>
+
+      <section class="tab-panel" id="panel-sim">
+        <div class="banner" id="baseline-banner">현재 베이스라인 — 불러오는 중...</div>
+
+        <div class="controls card">
+          <div class="ctrl"><label>horizon(일)</label><input type="number" id="horizon" min="3" max="30" value="7" /></div>
+          <div class="ctrl"><label>replications</label><input type="number" id="reps" min="10" max="300" step="10" value="40" /></div>
+          <div class="ctrl"><label>작업자 증감</label><input type="number" id="worker-delta" min="-2" max="6" value="0" /></div>
+          <div class="ctrl"><label>지게차 증감</label><input type="number" id="forklift-delta" min="-2" max="6" value="0" /></div>
+          <button class="btn-primary" id="run-sim">▶ 시뮬레이션 실행</button>
+        </div>
+
+        <div class="version-row">
+          <span class="version-badge" id="version-badge">저장된 버전: —</span>
+          <button class="btn-ghost" id="commit-baseline" title="이 조건을 베이스라인으로 반영">베이스라인 업데이트</button>
+        </div>
+
+        <div class="kpi-row" id="kpi-row">
+          <!-- KPI 카드 (JS 렌더) -->
+        </div>
+
+        <div class="grid-2">
+          <div class="card panel-min" id="panel-insight">
+            <div class="panel-head insight-head">
+              <span>예측 인사이트</span>
+              <div class="seg" id="insight-tabs">
+                <button class="seg-btn active" data-it="inv">재고 추이</button>
+                <button class="seg-btn" data-it="delay">출고지연 예측</button>
+              </div>
+            </div>
+            <div class="panel-body"><div id="insight-chart" class="chart-wrap">불러오는 중...</div></div>
+          </div>
+          <div class="card panel-min" id="panel-copilot">
+            <div class="panel-head">🤖 Agent Copilot</div>
+            <div class="panel-body"><div id="copilot-body" class="copilot">분석 중...</div></div>
+          </div>
+          <div class="card panel-min" id="panel-twin">
+            <div class="panel-head">디지털 트윈 — 창고 시뮬레이션 <span class="head-sub" id="tw-teaminfo"></span></div>
+            <div class="panel-body">
+              <div class="twin-ctrl">
+                <button class="btn-ghost" id="tw-play">▶ 재생</button>
+                <input type="range" class="tw-range" id="tw-range" min="0" max="0" value="0" />
+                <span class="tw-time" id="tw-time">--</span>
+              </div>
+              <div class="tw-svg" id="tw-svg">불러오는 중...</div>
+              <div class="tw-legend">
+                <span><i class="dot mv"></i>이동</span><span><i class="dot wk"></i>작업</span>
+                <span><i class="dot id"></i>유휴</span><span class="sep">|</span>
+                <span class="occ-scale">점유율 낮음<i class="occ-bar"></i>높음</span>
+              </div>
+            </div>
+          </div>
+          <div class="card panel-min" id="panel-timeline">
+            <div class="panel-head">Event Timeline</div>
+            <div class="panel-body"><div class="evt-list" id="evt-list">불러오는 중...</div></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="tab-panel hidden" id="panel-chat"><div class="card placeholder big">Agent Chat — 다음 단계</div></section>
+      <section class="tab-panel hidden" id="panel-kpi"><div class="card placeholder big">KPI Dashboard — 다음 단계</div></section>
+      <section class="tab-panel hidden" id="panel-approval"><div class="card placeholder big">Approval — 다음 단계</div></section>
+    </main>
+  </div>
+  <script src="/static/app.js"></script>
+</body>
+</html>
