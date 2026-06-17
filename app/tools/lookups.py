@@ -66,6 +66,10 @@ def query_operation_kpis(kpis: list[str], target_date: str | None = None) -> dic
                        COALESCE((SELECT SUM(qty) FROM inventory i WHERE i.sku=p.sku),0) AS stock
                        FROM products p) WHERE stock < safety_stock""")[0]["n"]
             out.append({"name": name, "value": n, "unit": "count"})
+        elif name == "on_time_shipping_rate":
+            r = q("""SELECT AVG(CASE WHEN shipped_datetime <= due_datetime THEN 1.0 ELSE 0.0 END) rate
+                     FROM outbound_orders WHERE status='SHIPPED' AND shipped_datetime IS NOT NULL""")[0]["rate"]
+            out.append({"name": name, "value": round(r, 3) if r is not None else None, "unit": "percent"})
         elif name == "stocking_completion_rate":
             r = q("""SELECT
                        SUM(CASE WHEN status='STOCKED' THEN 1 ELSE 0 END)*1.0

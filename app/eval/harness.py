@@ -73,6 +73,8 @@ INTENT_CASES = [
     ("출고확정대기 보여줘", "shipping_pending_query"),
     ("부족하면 어떻게 대응해?", "risk_response_recommendation"),
     ("오늘 입고예정 보여줘", "inbound_query"),
+    ("입고 관련 업무만 요약해줘", "daily_summary"),
+    ("오늘 출고 업무만 정리해줘", "daily_summary"),
 ]
 
 
@@ -82,6 +84,25 @@ def h_intent():
         got = router_node({"user_query": qy}).get("intent")
         checks.append((f"{qy} → {got} (기대 {expect})", got == expect))
     return "Intent 분류", checks
+
+
+# ---------- 5b. 요약 scope 추출(LLM) ----------
+SCOPE_CASES = [
+    ("입고 관련 업무만 요약해줘", "inbound"),
+    ("오늘 출고 업무만 정리해줘", "outbound"),
+    ("오늘 뭐 해야 돼?", "all"),
+]
+
+
+def h_summary_scope():
+    checks = []
+    for qy, expect in SCOPE_CASES:
+        r = router_node({"user_query": qy})
+        sc = (r.get("parameters") or {}).get("scope")
+        if sc is None and r.get("intent") == "daily_summary":
+            sc = "all"  # scope 미지정 = 전체 요약
+        checks.append((f"{qy} → scope={sc} (기대 {expect})", sc == expect))
+    return "요약 scope 추출", checks
 
 
 # ---------- 6. RAG 평가(LLM) ----------
@@ -115,7 +136,7 @@ def h_grounding():
 
 def main():
     harnesses = [h_tool_determinism, h_stocking_normalization, h_des_reproducibility,
-                 h_forecast, h_intent, h_rag, h_grounding]
+                 h_forecast, h_intent, h_summary_scope, h_rag, h_grounding]
     total_p = total_n = 0
     print("=" * 64)
     for h in harnesses:

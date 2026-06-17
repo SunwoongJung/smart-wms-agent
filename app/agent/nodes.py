@@ -41,15 +41,19 @@ def router_node(state: dict) -> dict:
         "- inventory_risk: 특정 SKU 소진/위험. 예: \"SKU_A001 언제 소진돼?\"\n"
         "- kpi_query: 운영 KPI 조회. 예: \"Zone 점유율 보여줘\", \"출고 정시율 어때?\"\n"
         "- simulation_query: 창고상황 예측·What-if. 예: \"이번 주 예측\", \"작업자 1명 늘리면?\"\n"
-        "- daily_summary: \"오늘 뭐 해야 돼?\" 류 종합\n"
-        "- inbound_query / outbound_query / shipping_pending_query: 단순 조회\n"
+        "- daily_summary: \"오늘 뭐 해야 돼?\" 류 종합. 특정 영역만 요약/정리 요청도 daily_summary로 분류하고 "
+        "parameters.scope에 영역을 넣는다(all|inbound|outbound|picking|risk|shipping). "
+        "예: \"입고 업무만 요약\"·\"적치대기만 정리\"→scope=inbound, \"출고만 정리\"→scope=outbound, "
+        "\"피킹만\"→scope=picking, \"재고위험만\"→scope=risk. 영역 한정이 없으면 scope=all.\n"
+        "- inbound_query / outbound_query / shipping_pending_query: 데이터 '목록'을 그대로 보여달라는 단순 조회"
+        "(\"입고예정 보여줘\"). '요약/정리/업무'는 조회가 아니라 daily_summary(scope)로 분류한다.\n"
         "- stocking_task_create / picking_instruction_create / shipping_confirm: 지시 생성·출고확정(상태변경)\n"
         "- risk_response_recommendation: \"부족하면 어떻게 대응?\" SOP 대응\n"
         "- greeting: 인사·잡담. 예: \"안녕?\", \"고마워\", \"잘 지내?\"\n"
         "- out_of_scope: WMS 운영과 무관한 질문(날씨·일반상식 등)\n"
         "규칙: 질의에 '왜', '이유', '어떻게 계산'이 있으면 policy_question 을 우선한다. "
         "단순 인사·감사는 greeting(업무 목록을 나열하지 말 것).\n"
-        "parameters 키(있을 때만): sku, inbound_no, order_no, location_id, zone_id, target_date, kpis, scenario.\n"
+        "parameters 키(있을 때만): sku, inbound_no, order_no, location_id, zone_id, target_date, kpis, scenario, scope.\n"
         '형식: {"intent":..,"confidence":0~1,"parameters":{..}}'
     )
     j = _json_chat(system, state["user_query"], settings.openai_router_model)
@@ -72,13 +76,20 @@ def planner_node(state: dict) -> dict:
 
 # ---------- 4. Tool Executor (인텐트 핸들러) ----------
 def _h_daily_summary(p):
-    risks = forecast.scan_inventory_risk(["HIGH", "MEDIUM", "WATCH"])["risks"]
-    return {
-        "picking": picking.recommend_picking(_current_dt(), forecast.risk_level_map())["recommendations"][:5],
-        "stocking_wait": lookups.lookup_inbound_orders(["RECEIVED"])["orders"],
-        "inventory_risk": risks,
-        "shipping_pending": lookups.lookup_shipping_pending()["pending"],
-    }
+    """오늘 할 일 종합. scope로 영역을 한정한다(all|inbound|outbound|picking|risk|shipping)."""
+    scope = p.get("scope") or "all"
+    out = {"_scope": scope}
+    if scope in ("all", "inbound"):
+        out["stocking_wait"] = lookups.lookup_inbound_orders(["RECEIVED"])["orders"]    # 적치대기
+        if scope == "inbound":  # 입고 전용 요약에선 입고예정도 함께(전체 '할 일'엔 미포함)
+            out["inbound_planned"] = lookups.lookup_inbound_orders(["PLANNED"])["orders"]
+    if scope in ("all", "picking", "outbound"):
+        out["picking"] = picking.recommend_picking(_current_dt(), forecast.risk_level_map())["recommendations"][:5]
+    if scope in ("all", "risk"):
+        out["inventory_risk"] = forecast.scan_inventory_risk(["HIGH", "MEDIUM", "WATCH"])["risks"]
+    if scope in ("all", "shipping"):
+        out["shipping_pending"] = lookups.lookup_shipping_pending()["pending"]
+    return out
 
 
 def _h_stocking_reco(p):
@@ -205,9 +216,17 @@ def response_generator_node(state: dict) -> dict:
         return {"final_response": f"다음 정보가 필요합니다: {', '.join(state['missing_parameters'])}"}
     if state.get("_rag_abstain") and state.get("intent") == "policy_question":
         return {"final_response": state.get("_rag_abstain_msg") or "문서 근거가 부족합니다."}
-    context = {"intent": state.get("intent"), "tool_results": state.get("tool_results", {}),
+    tr = state.get("tool_results", {}) or {}
+    context = {"intent": state.get("intent"), "tool_results": tr,
                "rag_evidence": state.get("rag_context", [])}
-    user = ("아래 Tool 결과와 RAG 근거를 바탕으로 운영자에게 답하세요. JSON 아님, 자연어.\n"
+    scope = tr.get("_scope")
+    scope_note = ""
+    if state.get("intent") == "daily_summary" and scope and scope != "all":
+        labels = {"inbound": "입고/적치대기", "outbound": "출고예정", "picking": "피킹",
+                  "risk": "재고위험", "shipping": "출고확정대기"}
+        scope_note = (f"[요약 범위] 이번 답변은 '{labels.get(scope, scope)}' 영역만 다루세요. "
+                      "그 외 영역(피킹·출고·재고위험 등)은 언급하지 마세요.\n")
+    user = (scope_note + "아래 Tool 결과와 RAG 근거를 바탕으로 운영자에게 답하세요. JSON 아님, 자연어.\n"
             + json.dumps(context, ensure_ascii=False, default=str)[:6000])
     resp = get_client().chat.completions.create(
         model=settings.openai_chat_model,

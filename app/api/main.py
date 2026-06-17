@@ -13,7 +13,7 @@ from pydantic import BaseModel
 import resmgmt
 from agent.graph import run as agent_run
 from config import settings
-from sim import des, forecast, whatif
+from sim import des, forecast, versions, whatif
 from tools import drafts, lookups, picking, stocking
 from tools.common import q
 
@@ -120,9 +120,10 @@ def health():
 def resources():
     r = resmgmt.get_resources()
     units = q("SELECT COALESCE(SUM(qty),0) s FROM inventory")[0]["s"]
+    value = q("SELECT COALESCE(SUM(i.qty*p.unit_cost),0) v FROM inventory i JOIN products p ON p.sku=i.sku")[0]["v"]
     return {**r, "team_count": max(0, min(r["worker"] // 2, r["forklift"])),
             "base_date": settings.base_date, "inventory_units": units,
-            "inventory_value": units * UNIT_COST}
+            "inventory_value": round(value)}
 
 
 @app.post("/resources/update")
@@ -138,6 +139,7 @@ def data_snapshot():
     )["kpis"]
     op = {x["name"]: x.get("value") for x in ops}
     inv = q("SELECT COALESCE(SUM(qty),0) qty, COUNT(*) rows FROM inventory")[0]
+    inv_value = q("SELECT COALESCE(SUM(i.qty*p.unit_cost),0) v FROM inventory i JOIN products p ON p.sku=i.sku")[0]["v"]
     latest = q("""SELECT version_name, run_type, created_at FROM simulation_runs
                   WHERE version_name IS NOT NULL ORDER BY created_at DESC LIMIT 1""")
     counts = {
@@ -155,7 +157,7 @@ def data_snapshot():
         "forklift": r["forklift"],
         "team_count": max(0, min(r["worker"] // 2, r["forklift"])),
         "inventory_units": inv["qty"],
-        "inventory_value": inv["qty"] * UNIT_COST,
+        "inventory_value": round(inv_value),
         "saturated_zone_count": op.get("saturated_zone_count"),
         "safety_stock_below_count": op.get("safety_stock_below_count"),
         "stocking_completion_rate": op.get("stocking_completion_rate"),
@@ -252,6 +254,30 @@ def simulate(r: SimulateReq):
                 "comparison": whatif.compare_simulation_scenarios(base, scen)["comparison"]}
     return des.run_des_simulation(horizon_days=r.horizon_days, near_future_days=r.near_future_days,
                                   replications=r.replications)
+
+
+@app.get("/simulation/versions")
+def simulation_versions():
+    """저장된 실행 버전 목록(최신순) + 해석된 작업자/지게차/팀 수."""
+    return {"versions": versions.list_versions()}
+
+
+@app.get("/simulation/versions/{version_name}")
+def simulation_version(version_name: str):
+    """단일 버전의 전체 결과(kpis·movement·timeseries·events)."""
+    v = versions.get_version(version_name)
+    if not v:
+        raise HTTPException(status_code=404, detail="버전 없음")
+    return v
+
+
+@app.get("/simulation/compare")
+def simulation_compare(base: str, target: str):
+    """두 버전 비교. base=비교 기준, target=표시 버전 → delta = target - base."""
+    b, t = versions.get_version(base), versions.get_version(target)
+    if not b or not t:
+        raise HTTPException(status_code=404, detail="버전 없음")
+    return whatif.compare_simulation_scenarios(b, t)
 
 
 @app.post("/kpi")

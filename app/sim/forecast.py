@@ -41,7 +41,7 @@ def inventory_forecast(sku: str, forecast_days: int = 30) -> dict:
         return {"error": "SKU 없음"}
     safety = p[0]["safety_stock"]
     f, method = fit_demand(sku)
-    cur = q("SELECT COALESCE(SUM(qty),0) s FROM inventory WHERE sku=?", (sku,))[0]["s"]
+    cur = q("SELECT COALESCE(SUM(qty),0) s FROM inventory WHERE sku=? AND status='AVAILABLE'", (sku,))[0]["s"]
 
     if method == "insufficient_data":
         return {"sku": sku, "method": method, "current_stock": cur, "safety_stock": safety,

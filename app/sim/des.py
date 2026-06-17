@@ -352,14 +352,19 @@ def run_des_simulation(horizon_days: int = 14, near_future_days: int | None = No
 
 
 def _persist(sim_run_id, version_name, run_type, scenario, horizon_days, near, reps, result):
+    from sim.versions import ensure_version_columns
+    ensure_version_columns()  # 기존 DB에 자원 수 컬럼 보장
+    p = result.get("params", {}) or {}
     conn = get_connection()
     try:
         conn.execute("""INSERT INTO simulation_runs(sim_run_id,version_name,run_type,scenario_json,horizon_days,
-                        near_future_days,replications,random_seed,result_json) VALUES(?,?,?,?,?,?,?,?,?)""",
+                        near_future_days,replications,random_seed,result_json,worker_count,forklift_count,team_count)
+                        VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
                      (sim_run_id, version_name, run_type,
                       json.dumps(scenario, ensure_ascii=False) if scenario else None,
                       horizon_days, near, reps, settings.des_random_seed,
-                      json.dumps(result, ensure_ascii=False, default=str)))
+                      json.dumps(result, ensure_ascii=False, default=str),
+                      p.get("worker_count"), p.get("forklift_count"), p.get("team_count")))
         for k in result["kpis"]:
             conn.execute("""INSERT INTO simulation_kpis(sim_run_id,sku,kpi_name,p50,p90,mean,occurrence_prob,unit)
                             VALUES(?,?,?,?,?,?,?,?)""",

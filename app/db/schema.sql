@@ -12,7 +12,15 @@ CREATE TABLE IF NOT EXISTS products (
     fast_moving_flag INTEGER DEFAULT 0,
     safety_stock INTEGER DEFAULT 0,
     shelf_life_managed INTEGER DEFAULT 0,
+    unit_cost REAL DEFAULT 1000,       -- SKU별 단가(재고가치 KPI 실값용)
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS customers (
+    customer_id TEXT PRIMARY KEY,
+    customer_name TEXT,
+    priority INTEGER DEFAULT 3,         -- 1(높음)~5(낮음), 고객별 고정
+    region TEXT
 );
 
 CREATE TABLE IF NOT EXISTS zones (
@@ -66,6 +74,7 @@ CREATE TABLE IF NOT EXISTS outbound_orders (
     customer_id TEXT,
     customer_priority INTEGER DEFAULT 1,
     due_datetime TEXT NOT NULL,
+    shipped_datetime TEXT,             -- 실제 출고시각(과거 SHIPPED 이력; 정시율 KPI용)
     status TEXT DEFAULT 'PLANNED'
 );
 
@@ -163,6 +172,9 @@ CREATE TABLE IF NOT EXISTS simulation_runs (
     replications INTEGER DEFAULT 200,
     random_seed INTEGER NOT NULL,
     result_json TEXT,                 -- 전체 결과(kpis·timeseries·inv_proj·events) — 버전별 차트 재현용
+    worker_count INTEGER,             -- 해석된 작업자 수(버전 dropdown 라벨·비교용)
+    forklift_count INTEGER,           -- 해석된 지게차 수
+    team_count INTEGER,               -- 해석된 팀 수
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 

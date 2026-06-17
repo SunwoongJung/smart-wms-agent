@@ -63,8 +63,13 @@ body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--f
 .btn-primary:disabled { opacity: .6; cursor: default; }
 .btn-ghost { background: #fff; border: 1px solid var(--line); border-radius: 9px; padding: 8px 14px; font-size: 12.5px; cursor: pointer; color: var(--ink); }
 
-.version-row { display: flex; align-items: center; justify-content: space-between; background: #eafaf0; border: 1px solid #c7ecd4; border-radius: 11px; padding: 10px 16px; margin-bottom: 14px; }
-.version-badge { font-size: 13px; color: #1c7a44; font-weight: 600; }
+.sim-section-label { font-size: 12px; font-weight: 700; color: var(--ink-sub); margin: 12px 2px 6px; }
+.version-row { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 14px; background: #fff; border: 1px solid var(--line); border-radius: 11px; padding: 10px 16px; margin-bottom: 14px; box-shadow: var(--shadow); }
+.version-badge { font-size: 13px; color: var(--accent-ink); font-weight: 600; }
+.ver-pick { display: flex; align-items: center; gap: 6px; }
+.ver-pick label { font-size: 12px; color: var(--ink-sub); white-space: nowrap; }
+.ver-pick select { padding: 7px 10px; border: 1px solid var(--line); border-radius: 9px; font-size: 12.5px; background: #fff; color: var(--ink); max-width: 280px; }
+.version-row #commit-baseline { margin-left: auto; }
 
 /* KPI cards */
 .kpi-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; margin-bottom: 16px; }

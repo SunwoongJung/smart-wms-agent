@@ -47,8 +47,10 @@
       </nav>
 
       <section class="tab-panel hidden" id="panel-sim">
+        <div class="sim-section-label">현재 운영 기준</div>
         <div class="banner" id="baseline-banner">현재 베이스라인 — 불러오는 중...</div>
 
+        <div class="sim-section-label">What-if 실행 — 현재 기준에 증감을 적용해 시뮬레이션</div>
         <div class="controls card">
           <div class="ctrl"><label>horizon(일)</label><input type="number" id="horizon" min="3" max="30" value="7" /></div>
           <div class="ctrl"><label>replications</label><input type="number" id="reps" min="10" max="300" step="10" value="40" /></div>
@@ -57,9 +59,12 @@
           <button class="btn-primary" id="run-sim">▶ 시뮬레이션 실행</button>
         </div>
 
+        <div class="sim-section-label">버전 조회 · 비교 — 표시 버전 하나가 모든 시각화의 기준</div>
         <div class="version-row">
-          <span class="version-badge" id="version-badge">저장된 버전: —</span>
-          <button class="btn-ghost" id="commit-baseline" title="이 조건을 베이스라인으로 반영">베이스라인 업데이트</button>
+          <div class="ver-pick"><label for="ver-display">표시 버전</label><select id="ver-display"></select></div>
+          <div class="ver-pick"><label for="ver-compare">비교 기준</label><select id="ver-compare"></select></div>
+          <span class="version-badge" id="version-badge">표시 버전: —</span>
+          <button class="btn-ghost" id="commit-baseline" disabled title="What-if 버전을 선택하면 활성화됩니다">이 버전을 운영 기준으로 반영</button>
         </div>
 
         <div class="kpi-row" id="kpi-row">

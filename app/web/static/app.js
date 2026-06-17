@@ -406,6 +406,63 @@ async function fetchForecast(sku) {
   fc.sku = sku; return fc;
 }
 
+/* ---------- 버전 조회/비교 + 통합 렌더 (single source of truth = 표시 버전) ---------- */
+let VERSIONS = [];
+function verLabel(v) {
+  const w = v.worker_count == null ? "?" : v.worker_count;
+  const f = v.forklift_count == null ? "?" : v.forklift_count;
+  return `${v.version_name} · ${v.run_type} · 작업자 ${w}/지게차 ${f}`;
+}
+async function loadVersions() {
+  const r = await fetch("/simulation/versions").then((x) => x.json()).catch(() => ({ versions: [] }));
+  VERSIONS = r.versions || [];
+  const opts = VERSIONS.map((v) => `<option value="${v.version_name}">${verLabel(v)}</option>`).join("");
+  const dv = $("#ver-display"), cv = $("#ver-compare");
+  const keepD = dv.value, keepC = cv.value;
+  dv.innerHTML = opts || `<option value="">(버전 없음)</option>`;
+  cv.innerHTML = `<option value="">(비교 안 함)</option>` + opts;
+  if (keepD) dv.value = keepD;
+  if (keepC) cv.value = keepC;
+}
+// 표시 버전(+선택적 비교 기준) 하나로 KPI·인사이트·트윈·타임라인을 일괄 렌더
+async function renderAll(result, comparison) {
+  if (!result) return;
+  LAST.result = result; LAST.comparison = comparison || null;
+  window.__lastParams = result.params;
+  renderKpis(result, LAST.comparison, META.inventory_value);
+  renderKpiDashboard();
+  const so = earliestStockout(result);
+  LAST.forecast = await fetchForecast(so ? so.sku : "SKU_A001");
+  renderInsight();
+  renderTwin(result.movement, result.zone_occupancy_timeseries);   // 트윈 = 표시 버전
+  renderTimeline(result.bottleneck_events);                        // 타임라인 = 같은 버전의 이벤트
+  const cmpName = $("#ver-compare").value;
+  $("#version-badge").textContent = `표시: ${result.version_name} (${result.run_type})`
+    + (comparison && cmpName ? ` · 비교기준 ${cmpName}` : "");
+  updateCommitState(result);
+  setUpdated();
+}
+function updateCommitState(result) {
+  const btn = $("#commit-baseline");
+  const isWhatif = !!result && result.run_type === "WHATIF";
+  btn.disabled = !isWhatif;
+  btn.title = isWhatif ? "이 버전의 작업자/지게차 수를 운영 기준으로 반영합니다"
+                       : "What-if 버전을 선택하면 활성화됩니다";
+}
+async function selectVersion() {
+  const dv = $("#ver-display").value; if (!dv) return;
+  const cv = $("#ver-compare").value;
+  const result = await fetch(`/simulation/versions/${encodeURIComponent(dv)}`).then((x) => x.json()).catch(() => null);
+  if (!result || result.error) { $("#version-badge").textContent = "버전 로드 실패"; return; }
+  let comparison = null;
+  if (cv && cv !== dv) {
+    const cmp = await fetch(`/simulation/compare?base=${encodeURIComponent(cv)}&target=${encodeURIComponent(dv)}`)
+      .then((x) => x.json()).catch(() => null);
+    comparison = (cmp && cmp.comparison) || null;
+  }
+  await renderAll(result, comparison);
+}
+
 async function runSim() {
   const btn = $("#run-sim"); btn.disabled = true; btn.textContent = "실행 중...";
   const body = { horizon_days: Number($("#horizon").value), replications: Number($("#reps").value) };
@@ -414,17 +471,10 @@ async function runSim() {
   try {
     const resp = await fetch("/simulate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then((x) => x.json());
     const result = resp.scenario || resp;
-    LAST.result = result; LAST.comparison = resp.comparison || null;
-    renderKpis(result, LAST.comparison, META.inventory_value);
-    renderKpiDashboard();
-    $("#version-badge").textContent = `저장된 버전: ${result.version_name} (${result.run_type})`;
-    window.__lastParams = result.params;
-    setUpdated();
-    const so = earliestStockout(result);
-    LAST.forecast = await fetchForecast(so ? so.sku : "SKU_A001");
-    renderInsight();
-    renderTwin(result.movement, result.zone_occupancy_timeseries);
-    renderTimeline(result.bottleneck_events);
+    await loadVersions();                                          // 새 버전 목록 반영
+    $("#ver-display").value = result.version_name || "";
+    $("#ver-compare").value = resp.comparison && resp.baseline ? (resp.baseline.version_name || "") : "";
+    await renderAll(result, resp.comparison || null);             // 방금 실행 버전을 표시 버전으로
     if (result.run_type === "BASELINE") loadCopilot(result.params).catch(() => {});
   } catch (e) {
     $("#version-badge").textContent = "실행 오류: " + e;
@@ -434,10 +484,20 @@ async function runSim() {
 }
 
 async function commitBaseline() {
-  const p = window.__lastParams; if (!p) return;
-  await fetch("/resources/update?worker=" + p.worker_count + "&forklift=" + p.forklift_count, { method: "POST" }).catch(() => {});
+  // 표시 중인(WHATIF) 버전의 해석된 자원 수를 운영 기준으로 반영
+  const dv = $("#ver-display").value;
+  let p = window.__lastParams;
+  if (dv) {
+    const result = await fetch(`/simulation/versions/${encodeURIComponent(dv)}`).then((x) => x.json()).catch(() => null);
+    if (result && result.params) p = result.params;
+  }
+  if (!p) return;
+  $("#commit-baseline").disabled = true;
+  await fetch(`/resources/update?worker=${p.worker_count}&forklift=${p.forklift_count}`, { method: "POST" }).catch(() => {});
+  $("#worker-delta").value = 0; $("#forklift-delta").value = 0;   // 델타 초기화(다음 실행에 중복 가산 방지)
   await loadResources();
   await loadOperationKpis().catch(() => {});
+  await runSim();                                                 // 새 기준으로 BASELINE 재실행(델타 0)
 }
 
 async function refreshDashboard() {
@@ -458,6 +518,9 @@ function setupTabs() {
     document.querySelectorAll("#insight-tabs .seg-btn").forEach((x) => x.classList.remove("active"));
     b.classList.add("active"); LAST.insightTab = b.dataset.it; renderInsight();
   }));
+  const dv = $("#ver-display"), cv = $("#ver-compare");
+  if (dv) dv.addEventListener("change", selectVersion);
+  if (cv) cv.addEventListener("change", selectVersion);
 }
 
 /* ---------- 디지털 트윈 (2D SVG) ---------- */
