@@ -10,7 +10,7 @@ from config import settings
 from llm import get_client
 from rag import retriever
 from sim import des, forecast, whatif
-from tools import drafts, lookups, picking, stocking
+from tools import allocation, dead_stock, drafts, lookups, picking, replenishment, stocking
 
 from agent.state import (RAG_INTENTS, REQUIRED_PARAMS, STATE_CHANGE_INTENTS)
 
@@ -47,6 +47,15 @@ def router_node(state: dict) -> dict:
         "\"피킹만\"→scope=picking, \"재고위험만\"→scope=risk. 영역 한정이 없으면 scope=all.\n"
         "- inbound_query / outbound_query / shipping_pending_query: 데이터 '목록'을 그대로 보여달라는 단순 조회"
         "(\"입고예정 보여줘\"). '요약/정리/업무'는 조회가 아니라 daily_summary(scope)로 분류한다.\n"
+        "- allocation_query: 출고 주문 할당 현황·결품(예상 결품) 조회. 예: \"결품 위험 주문 알려줘\", "
+        "\"오늘 출고 할당 현황\", \"재고 모자란 주문 있어?\"\n"
+        "- allocation_create: 특정 출고 주문에 재고를 할당(상태변경). 예: \"ORD005 할당해줘\"\n"
+        "- dead_stock_query: 체화재고(저회전·장기 미출고·유통기한 임박) 조회. 예: \"체화재고 보여줘\", "
+        "\"안 나가는 재고 뭐 있어?\", \"유통기한 임박 재고\"\n"
+        "- disposal_create: 특정 SKU를 처분/보류(상태변경). 예: \"SKU_A006 처분해줘\"\n"
+        "- replenishment_query: 피킹 로케이션 보충 필요 조회. 예: \"보충 필요한 거 알려줘\", "
+        "\"피킹면 부족한 상품\"\n"
+        "- replenish_create: 특정 SKU 피킹면 보충 실행(상태변경). 예: \"SKU_A007 보충해줘\"\n"
         "- stocking_task_create / picking_instruction_create / shipping_confirm: 지시 생성·출고확정(상태변경)\n"
         "- risk_response_recommendation: \"부족하면 어떻게 대응?\" SOP 대응\n"
         "- greeting: 인사·잡담. 예: \"안녕?\", \"고마워\", \"잘 지내?\"\n"
@@ -125,7 +134,7 @@ def _h_inbound_query(p):
 
 
 def _h_outbound_query(p):
-    return lookups.lookup_outbound_orders(["PLANNED"], p.get("target_date"))
+    return lookups.lookup_outbound_orders(["PLANNED", "ALLOCATED"], p.get("target_date"))
 
 
 def _h_shipping_pending(p):
@@ -149,11 +158,38 @@ def _h_shipping_confirm(p):
     return {"draft": drafts.create_shipping_confirm_draft(p["order_no"])}
 
 
+def _h_allocation_query(p):
+    return allocation.scan_allocation(p.get("target_date"))
+
+
+def _h_allocation_create(p):
+    return {"draft": drafts.create_allocation_draft(p["order_no"])}
+
+
+def _h_dead_stock_query(p):
+    return dead_stock.scan_dead_stock(p.get("grades"))
+
+
+def _h_disposal_create(p):
+    return {"draft": drafts.create_disposal_draft(p["sku"])}
+
+
+def _h_replenishment_query(p):
+    return replenishment.scan_replenishment()
+
+
+def _h_replenish_create(p):
+    return {"draft": drafts.create_replenishment_draft(p["sku"])}
+
+
 _HANDLERS = {
     "daily_summary": _h_daily_summary, "stocking_recommendation": _h_stocking_reco,
     "inventory_risk": _h_inventory_risk, "picking_recommendation": _h_picking_reco,
     "kpi_query": _h_kpi, "simulation_query": _h_simulation, "inbound_query": _h_inbound_query,
     "outbound_query": _h_outbound_query, "shipping_pending_query": _h_shipping_pending,
+    "allocation_query": _h_allocation_query, "allocation_create": _h_allocation_create,
+    "dead_stock_query": _h_dead_stock_query, "disposal_create": _h_disposal_create,
+    "replenishment_query": _h_replenishment_query, "replenish_create": _h_replenish_create,
     "risk_response_recommendation": _h_risk_response, "stocking_task_create": _h_stocking_create,
     "picking_instruction_create": _h_picking_create, "shipping_confirm": _h_shipping_confirm,
     "policy_question": lambda p: {}, "greeting": lambda p: {}, "out_of_scope": lambda p: {},

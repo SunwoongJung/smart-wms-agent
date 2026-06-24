@@ -40,7 +40,8 @@ def recommend_picking(current_datetime: str, risk_levels: dict | None = None) ->
     """
     risk_levels = risk_levels or {}
     now = datetime.strptime(current_datetime, _FMT)
-    orders = q("SELECT order_no, due_datetime, customer_priority FROM outbound_orders WHERE status='PLANNED'")
+    orders = q("SELECT order_no, due_datetime, customer_priority FROM outbound_orders "
+               "WHERE status IN ('PLANNED','ALLOCATED')")
     recs = []
     for o in orders:
         ct = calculate_picking_required_time(o["order_no"])

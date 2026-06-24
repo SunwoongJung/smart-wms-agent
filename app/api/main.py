@@ -3,13 +3,15 @@
 실행(앱 디렉토리, venv 활성화):
     uvicorn api.main:app --reload
 """
+import json
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+import realtime
 import resmgmt
 from agent.graph import run as agent_run
 from config import settings
@@ -102,6 +104,10 @@ class StockingDraftReq(BaseModel):
 
 class OrderDraftReq(BaseModel):
     order_no: str
+
+
+class SkuReq(BaseModel):
+    sku: str
 
 
 class ApproveReq(BaseModel):
@@ -212,7 +218,28 @@ def inbound(status: str = "PLANNED,RECEIVED", target_date: str | None = None):
 
 @app.get("/outbound")
 def outbound(target_date: str | None = None):
-    return lookups.lookup_outbound_orders(["PLANNED"], target_date)
+    return lookups.lookup_outbound_orders(["PLANNED", "ALLOCATED"], target_date)
+
+
+@app.get("/allocation/scan")
+def allocation_scan(target_date: str | None = None):
+    """예상 결품 분석 — 가용재고 기준 출고 주문 할당 시뮬레이션."""
+    from tools import allocation
+    return allocation.scan_allocation(target_date)
+
+
+@app.get("/deadstock/scan")
+def deadstock_scan(grades: str | None = None):
+    """체화재고 분석 — 저회전/장기 미출고/유통기한 임박."""
+    from tools import dead_stock
+    return dead_stock.scan_dead_stock(grades.split(",") if grades else None)
+
+
+@app.get("/replenishment/scan")
+def replenishment_scan():
+    """재고 보충 추천 — 피킹면 부족 + 보관 보유."""
+    from tools import replenishment
+    return replenishment.scan_replenishment()
 
 
 @app.get("/shipping/pending")
@@ -296,6 +323,21 @@ def picking_draft(r: OrderDraftReq):
     return drafts.create_picking_instruction_draft(r.order_no)
 
 
+@app.post("/allocation/draft")
+def allocation_draft(r: OrderDraftReq):
+    return drafts.create_allocation_draft(r.order_no)
+
+
+@app.post("/replenishment/draft")
+def replenishment_draft(r: SkuReq):
+    return drafts.create_replenishment_draft(r.sku)
+
+
+@app.post("/disposal/draft")
+def disposal_draft(r: SkuReq):
+    return drafts.create_disposal_draft(r.sku)
+
+
 @app.post("/shipping/draft")
 def shipping_draft(r: OrderDraftReq):
     return drafts.create_shipping_confirm_draft(r.order_no)
@@ -304,6 +346,42 @@ def shipping_draft(r: OrderDraftReq):
 @app.post("/approve")
 def approve(r: ApproveReq):
     return drafts.approve_action(r.draft_id, r.approved, r.user_id)
+
+
+@app.get("/events")
+async def events():
+    """SSE — 실시간 수요 발생 이벤트 스트림(Toast 알림용)."""
+    async def gen():
+        qe = realtime.subscribe()
+        try:
+            yield ": connected\n\n"
+            while True:
+                ev = await qe.get()
+                yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n"
+        finally:
+            realtime.unsubscribe(qe)
+    return StreamingResponse(gen(), media_type="text/event-stream")
+
+
+@app.post("/realtime/start")
+async def realtime_start(interval: int | None = None):
+    return realtime.start(interval)
+
+
+@app.post("/realtime/stop")
+async def realtime_stop():
+    return realtime.stop()
+
+
+@app.get("/realtime/status")
+def realtime_status():
+    return realtime.status()
+
+
+@app.post("/realtime/emit")
+async def realtime_emit():
+    """수동으로 실시간 요청 1건 발생(데모용)."""
+    return await realtime.emit_once()
 
 
 @app.get("/trace/{run_id}")

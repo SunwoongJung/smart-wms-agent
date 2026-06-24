@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS locations (
     capacity INTEGER NOT NULL,
     occupied_qty INTEGER DEFAULT 0,
     available_flag INTEGER DEFAULT 1,
+    location_role TEXT DEFAULT 'PICK',  -- PICK(피킹면, 전진재고) | RESERVE(보관, 벌크재고)
     x_coord REAL DEFAULT 0,
     y_coord REAL DEFAULT 0,
     FOREIGN KEY(zone_id) REFERENCES zones(zone_id)
@@ -82,7 +83,11 @@ CREATE TABLE IF NOT EXISTS outbound_order_lines (
     line_id INTEGER PRIMARY KEY AUTOINCREMENT,
     order_no TEXT NOT NULL,
     sku TEXT NOT NULL,
-    qty INTEGER NOT NULL,
+    qty INTEGER NOT NULL,              -- 예정 수량(요청량)
+    allocated_qty INTEGER DEFAULT 0,  -- 할당 수량(가용재고 배정량)
+    picked_qty INTEGER DEFAULT 0,     -- 피킹 수량
+    shipped_qty INTEGER DEFAULT 0,    -- 확정/출고 수량
+    line_status TEXT DEFAULT 'PLANNED', -- PLANNED→ALLOCATED/PARTIAL→PICKED→SHIPPED
     FOREIGN KEY(order_no) REFERENCES outbound_orders(order_no),
     FOREIGN KEY(sku) REFERENCES products(sku)
 );

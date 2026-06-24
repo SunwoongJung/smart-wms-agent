@@ -26,6 +26,8 @@ class AgentState(TypedDict, total=False):
 INTENTS = [
     "daily_summary", "inbound_query", "stocking_recommendation", "stocking_task_create",
     "outbound_query", "picking_recommendation", "picking_instruction_create",
+    "allocation_query", "allocation_create",
+    "dead_stock_query", "disposal_create", "replenishment_query", "replenish_create",
     "inventory_risk", "risk_response_recommendation", "shipping_pending_query",
     "shipping_confirm", "kpi_query", "simulation_query", "policy_question",
     "greeting", "out_of_scope",
@@ -36,6 +38,9 @@ REQUIRED_PARAMS = {
     "stocking_recommendation": ["inbound_no"],
     "stocking_task_create": ["inbound_no", "location_id"],
     "picking_instruction_create": ["order_no"],
+    "allocation_create": ["order_no"],
+    "disposal_create": ["sku"],
+    "replenish_create": ["sku"],
     "inventory_risk": ["sku"],
     "shipping_confirm": ["order_no"],
 }
@@ -45,4 +50,5 @@ RAG_INTENTS = {"policy_question", "stocking_recommendation", "picking_recommenda
                "inventory_risk", "risk_response_recommendation"}
 
 # 상태변경(승인 필요) 인텐트
-STATE_CHANGE_INTENTS = {"stocking_task_create", "picking_instruction_create", "shipping_confirm"}
+STATE_CHANGE_INTENTS = {"stocking_task_create", "picking_instruction_create", "shipping_confirm",
+                        "allocation_create", "disposal_create", "replenish_create"}

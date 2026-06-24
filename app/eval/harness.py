@@ -4,7 +4,7 @@
 - 결정성/재현성 하네스(LLM 불필요) + Intent/RAG/Grounding 평가(LLM 사용).
 """
 from sim import des, forecast
-from tools import picking, stocking
+from tools import allocation, dead_stock, picking, replenishment, stocking
 from rag import retriever
 from agent.nodes import router_node
 from agent.graph import run as agent_run
@@ -61,6 +61,35 @@ def h_forecast():
     return "Forecast 위험등급", checks
 
 
+# ---------- 4b. 할당/결품 ----------
+def h_allocation():
+    calc = allocation.calculate_allocation("ORD005")   # SKU_A001 300 요청 = 결품 시연
+    scan = allocation.scan_allocation()
+    short_orders = {o["order_no"] for o in scan["shortage_orders"]}
+    checks = [
+        ("ORD005 결품 발생", calc.get("total_shortage", 0) > 0),
+        ("scan에 ORD005 결품 포함", "ORD005" in short_orders),
+        ("결품 주문 수 ≥ 1", scan["shortage_order_count"] >= 1),
+        ("할당량 ≤ 요청량", all(l["allocatable"] <= l["requested"] for l in calc["lines"])),
+    ]
+    return "할당/결품(예상 결품)", checks
+
+
+# ---------- 4c. 체화재고 / 재고 보충 ----------
+def h_dead_stock_replenish():
+    ds = dead_stock.scan_dead_stock()
+    dead_skus = {x["sku"] for x in ds["items"] if x["grade"] == "DEAD"}
+    rpl = replenishment.scan_replenishment()
+    a007 = next((r for r in rpl["recommendations"] if r["sku"] == "SKU_A007"), None)
+    checks = [
+        ("체화재고 식별(≥1)", ds["count"] >= 1),
+        ("무동 SKU_A006 = DEAD", "SKU_A006" in dead_skus),
+        ("보충 추천에 SKU_A007 포함", a007 is not None),
+        ("보충 수량 ≤ 보관 재고", a007 is not None and a007["recommend_qty"] <= a007["reserve_qty"]),
+    ]
+    return "체화재고/재고 보충", checks
+
+
 # ---------- 5. Intent 평가(LLM) ----------
 INTENT_CASES = [
     ("오늘 뭐 해야 돼?", "daily_summary"),
@@ -75,6 +104,9 @@ INTENT_CASES = [
     ("오늘 입고예정 보여줘", "inbound_query"),
     ("입고 관련 업무만 요약해줘", "daily_summary"),
     ("오늘 출고 업무만 정리해줘", "daily_summary"),
+    ("결품 위험 주문 알려줘", "allocation_query"),
+    ("체화재고 보여줘", "dead_stock_query"),
+    ("보충 필요한 거 알려줘", "replenishment_query"),
 ]
 
 
@@ -136,7 +168,8 @@ def h_grounding():
 
 def main():
     harnesses = [h_tool_determinism, h_stocking_normalization, h_des_reproducibility,
-                 h_forecast, h_intent, h_summary_scope, h_rag, h_grounding]
+                 h_forecast, h_allocation, h_dead_stock_replenish, h_intent, h_summary_scope,
+                 h_rag, h_grounding]
     total_p = total_n = 0
     print("=" * 64)
     for h in harnesses:

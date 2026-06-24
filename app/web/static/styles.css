@@ -82,6 +82,8 @@ body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--f
 .kpi-delta.up { color: var(--red); } .kpi-delta.down { color: var(--green); } .kpi-delta.flat { color: var(--ink-sub); }
 .kpi-delta .base { color: var(--ink-sub); margin-left: 6px; }
 .kpi-row-4 { grid-template-columns: repeat(4, 1fr); }
+.kpi-row-5 { grid-template-columns: repeat(5, 1fr); }
+.kpi-row-auto { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
 
 .kpi-board { display: flex; flex-direction: column; gap: 14px; }
 .kpi-board-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 2px; }
@@ -120,6 +122,27 @@ body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--f
 .raw-table td { font-variant-numeric: tabular-nums; }
 .raw-table tr:last-child td { border-bottom: none; }
 .raw-empty { color: var(--ink-sub); padding: 18px; }
+
+/* 실시간 수요 토글 + Toast */
+.live-btn { display: inline-flex; align-items: center; gap: 7px; font-weight: 600; }
+.live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-sub); display: inline-block; }
+.live-btn.on { color: var(--accent-ink); border-color: #b9ccff; background: #eff4ff; }
+.live-btn.on .live-dot { background: var(--green); box-shadow: 0 0 0 3px rgba(22,163,74,.18); animation: livepulse 1.4s infinite; }
+@keyframes livepulse { 0%,100% { opacity: 1; } 50% { opacity: .4; } }
+.toast-wrap { position: fixed; right: 18px; bottom: 18px; display: flex; flex-direction: column; gap: 10px; z-index: 9999; }
+.toast { min-width: 280px; max-width: 360px; background: #fff; border: 1px solid var(--line); border-left: 4px solid var(--accent);
+  border-radius: 12px; box-shadow: 0 8px 24px rgba(20,30,60,.16); padding: 12px 14px; animation: toastin .25s ease; }
+.toast.inbound { border-left-color: var(--green); }
+.toast.outbound { border-left-color: var(--accent); }
+.toast.error { border-left-color: var(--red); }
+.toast .t-head { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 13px; }
+.toast .t-tag { font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 999px; background: #eef4ff; color: var(--accent-ink); }
+.toast.inbound .t-tag { background: #e9f7ee; color: var(--green); }
+.toast .t-time { margin-left: auto; font-size: 11px; color: var(--ink-sub); font-weight: 500; }
+.toast .t-body { font-size: 12.5px; color: var(--ink); margin-top: 5px; line-height: 1.4; }
+.toast.fade { animation: toastout .3s ease forwards; }
+@keyframes toastin { from { transform: translateY(12px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+@keyframes toastout { to { transform: translateX(20px); opacity: 0; } }
 
 /* Placeholder panels */
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }

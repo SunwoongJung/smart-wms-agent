@@ -57,9 +57,13 @@ REQUIRED_SKUS = [
     ("SKU_A003", "A제품-003", "GEN", "NORMAL", 1, 25, "stable", 6),
     ("SKU_A004", "A제품-004", "GEN", "NORMAL", 0, 20, "noisy", 5),
     ("SKU_A005", "A제품-005", "GEN", "NORMAL", 0, 15, "decreasing", 6),
+    ("SKU_A006", "A제품-006(체화)", "GEN", "NORMAL", 0, 10, "stable", 0),  # 무동 체화 시연
+    ("SKU_A007", "A제품-007(보충)", "GEN", "NORMAL", 1, 10, "stable", 10),  # 피킹면 보충 시연
     ("SKU_C001", "냉장-001", "COLD", "COLD", 0, 15, "stable", 4),
     ("SKU_F001", "냉동-001", "FROZEN", "FROZEN", 0, 10, "stable", 3),
 ]
+DEAD_DEMO_SKU = "SKU_A006"               # 최근 무출고(체화) 시연용 SKU
+# 피킹면(PICK) 부족 + 보관(RESERVE) 보유 → 보충 시연용 SKU(아래 preset로 배치)
 DEMAND_PATTERNS = ["increasing", "stable", "decreasing", "seasonal", "noisy"]
 
 
@@ -130,9 +134,10 @@ def gen_locations():
         letter = zid.split("_")[1]
         for i in range(1, n + 1):
             loc_id = f"L-{letter}-{i:03d}"
+            role = "PICK" if i == 1 else "RESERVE"  # 존마다 첫 로케이션이 피킹면
             rows.append(dict(location_id=loc_id, zone_id=zid, location_name=loc_id,
                              capacity=LOC_CAPACITY, occupied_qty=0, available_flag=1,
-                             x_coord=0.0, y_coord=0.0))
+                             location_role=role, x_coord=0.0, y_coord=0.0))
             zone_of[loc_id] = (zid, st)
     return rows, zone_of
 
@@ -172,6 +177,9 @@ def gen_inventory(products, storage_by_sku, locations, zone_of):
         ("L-B-002", "SKU_A005", 200),  # 안정 LOW
         ("L-E-001", "SKU_C001", 50),   # 냉장 → ZONE_E(COLD)
         ("L-G-001", "SKU_F001", 40),   # 냉동 → ZONE_G(FROZEN)
+        ("L-I-001", "SKU_A006", 90),   # 체화 시연(무출고) → ZONE_I(저회전/보관)
+        ("L-D-001", "SKU_A007", 8),    # 보충 시연: 피킹면(PICK, ZONE_D) 재고 부족
+        ("L-D-003", "SKU_A007", 100),  # 보충 시연: 보관(RESERVE, ZONE_D)에 보충용 재고 보유
     ]
     preset_locs: set = set()
     for loc_id, sku, qty in preset:
@@ -296,9 +304,11 @@ def gen_outbound(products, customers, demand_map):
     line_seq = 1
     normal_skus = [p["sku"] for p in products if p["storage_type"] == "NORMAL"]
 
-    def add_line(order_no, sku, qty):
+    def add_line(order_no, sku, qty, line_status="PLANNED", allocated=0, picked=0, shipped=0):
         nonlocal line_seq
-        lines.append(dict(line_id=line_seq, order_no=order_no, sku=sku, qty=qty))
+        lines.append(dict(line_id=line_seq, order_no=order_no, sku=sku, qty=qty,
+                          allocated_qty=allocated, picked_qty=picked, shipped_qty=shipped,
+                          line_status=line_status))
         line_seq += 1
 
     def add_order(order_no, cust, pri, due, status, shipped=None):
@@ -312,6 +322,8 @@ def gen_outbound(products, customers, demand_map):
     add_line("ORD002", "SKU_A002", 15); add_line("ORD002", "SKU_A003", 10)
     add_order("ORD003", "C03", 1, datetime(2026, 6, 15, 13, 0), "PLANNED"); add_line("ORD003", "SKU_A005", 30)
     add_order("ORD004", "C04", 1, datetime(2026, 6, 15, 15, 0), "PLANNED"); add_line("ORD004", "SKU_A001", 10)
+    # 결품(할당 부족) 시연용 — 가용재고를 크게 초과하는 요청
+    add_order("ORD005", "C05", 1, datetime(2026, 6, 15, 16, 0), "PLANNED"); add_line("ORD005", "SKU_A001", 300)
     add_order("ORD010", "C10", 2, datetime(2026, 6, 15, 12, 0), "SHIPPING_PENDING"); add_line("ORD010", "SKU_A002", 20)
 
     # 나머지 현재 구간 + 병목 시나리오 (BASE_DATE+1 오전 과밀)
@@ -348,8 +360,8 @@ def gen_outbound(products, customers, demand_map):
             ono = f"OH{seq:06d}"; seq += 1
             add_order(ono, cust["customer_id"], cust["priority"], due, "SHIPPED", ship)
             shipped_orders.append(ono)
-            for sku, qty in chunk:
-                add_line(ono, sku, int(qty))
+            for sku, qty in chunk:  # 과거 출고 = 전량 할당·피킹·출고 완료
+                add_line(ono, sku, int(qty), "SHIPPED", int(qty), int(qty), int(qty))
     return orders, lines, shipped_orders
 
 
@@ -372,6 +384,10 @@ def gen_demand_history(products, pattern_by_sku, required_base):
         season_amp = 0.35 if pat == "seasonal" else 0.10
         for k in range(HISTORY_DAYS):
             d = BASE_DATE - timedelta(days=HISTORY_DAYS - k)
+            if sku == DEAD_DEMO_SKU:                  # 체화 시연: 전 기간 무출고
+                rows.append(dict(sku=sku, demand_date=_d(d), shipped_qty=0))
+                demand_map.setdefault(d.isoformat(), {})[sku] = 0
+                continue
             frac = k / HISTORY_DAYS
             trend = 1 + 0.5 * frac if pat == "increasing" else 1 - 0.4 * frac if pat == "decreasing" else 1.0
             season = 1 + season_amp * math.sin(2 * math.pi * k / 7 + phase)

@@ -11,6 +11,9 @@ const KPI_META = {
   saturated_zone_count: { label: "포화 Zone 수", desc: "점유율이 90%를 초과한 Zone 개수", unit: "개" },
   safety_stock_below_count: { label: "안전재고 미달 SKU 수", desc: "현재 재고가 안전재고보다 낮은 SKU 개수", unit: "개" },
   stocking_completion_rate: { label: "입고 완료율", desc: "입고 대상 중 적치 완료 상태인 건의 비율", unit: "%" },
+  expected_shortage_count: { label: "예상 결품 주문 수", desc: "현재 가용재고로 요청 수량을 채우지 못하는(할당 부족) 출고 주문 수", unit: "건" },
+  dead_stock_count: { label: "체화재고 SKU 수", desc: "저회전·최근 14일 무출고·유통기한 임박 중 하나 이상에 해당하는 SKU 수", unit: "개" },
+  replenishment_needed_count: { label: "보충 필요 SKU 수", desc: "피킹 로케이션이 목표 재고 미만이고 보관에 보충 가능 재고가 있는 SKU 수", unit: "개" },
   shipping_delay_count: { label: "출고 지연 건수", desc: "시뮬레이션 기간 내 납기 초과가 발생한 출고 건수", unit: "건" },
   picking_wait_minutes: { label: "피킹 대기 시간", desc: "피킹 작업이 시작되기 전까지 대기한 시간", unit: "분" },
   resource_utilization_team: { label: "작업팀 가동률", desc: "작업자 2명과 지게차 1대로 구성된 작업팀의 평균 사용률", unit: "%" },
@@ -85,7 +88,7 @@ function metric(label, value, note = "") {
 }
 
 async function loadOperationKpis() {
-  const body = { kpis: ["zone_occupancy", "saturated_zone_count", "safety_stock_below_count", "stocking_completion_rate"] };
+  const body = { kpis: ["zone_occupancy", "saturated_zone_count", "safety_stock_below_count", "stocking_completion_rate", "expected_shortage_count", "dead_stock_count", "replenishment_needed_count"] };
   LAST.operationKpis = await fetch("/kpi", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then((x) => x.json());
   renderKpiDashboard();
   return LAST.operationKpis;
@@ -97,11 +100,17 @@ function renderOpsKpis() {
   const saturated = opKpi("saturated_zone_count");
   const safety = opKpi("safety_stock_below_count");
   const stocking = opKpi("stocking_completion_rate");
+  const shortage = opKpi("expected_shortage_count");
+  const dead = opKpi("dead_stock_count");
+  const replenish = opKpi("replenishment_needed_count");
   $("#ops-kpi-row").innerHTML = [
     { ico: "▦", label: kpiLabel("zone_occupancy"), val: worst ? pct(worst.occupancy) : "—", delta: `<span class="kpi-delta flat">${worst ? worst.zone_id : "데이터 없음"}</span>` },
     { ico: "!", label: kpiLabel("saturated_zone_count"), val: saturated.value ?? "—", unit: "개", delta: `<span class="kpi-delta flat">점유율 90% 초과</span>` },
     { ico: "↓", label: kpiLabel("safety_stock_below_count"), val: safety.value ?? "—", unit: "개", delta: `<span class="kpi-delta flat">현재 재고 기준</span>` },
     { ico: "✓", label: kpiLabel("stocking_completion_rate"), val: pct(stocking.value), unit: "", delta: `<span class="kpi-delta flat">STOCKED / 입고 대상</span>` },
+    { ico: "⚠", label: kpiLabel("expected_shortage_count"), val: shortage.value ?? "—", unit: "건", delta: `<span class="kpi-delta ${shortage.value ? "up" : "flat"}">가용재고 기준 할당</span>` },
+    { ico: "🐌", label: kpiLabel("dead_stock_count"), val: dead.value ?? "—", unit: "개", delta: `<span class="kpi-delta ${dead.value ? "up" : "flat"}">저회전·임박·무동</span>` },
+    { ico: "🔁", label: kpiLabel("replenishment_needed_count"), val: replenish.value ?? "—", unit: "개", delta: `<span class="kpi-delta ${replenish.value ? "up" : "flat"}">피킹면 보충 대상</span>` },
   ].map((c) => `
     <div class="kpi"><div class="kpi-top"><span class="kpi-ico">${c.ico}</span>${c.label}</div>
       <div class="kpi-val">${c.val}<span class="unit">${c.unit || ""}</span></div>${c.delta}</div>`).join("");
@@ -121,6 +130,9 @@ function renderOpsKpis() {
       <tr><td>${kpiLabel("saturated_zone_count")}</td><td class="num">${saturated.value ?? "—"}</td><td>${kpiDesc("saturated_zone_count")}</td></tr>
       <tr><td>${kpiLabel("safety_stock_below_count")}</td><td class="num">${safety.value ?? "—"}</td><td>${kpiDesc("safety_stock_below_count")}</td></tr>
       <tr><td>${kpiLabel("stocking_completion_rate")}</td><td class="num">${pct(stocking.value)}</td><td>${kpiDesc("stocking_completion_rate")}</td></tr>
+      <tr><td>${kpiLabel("expected_shortage_count")}</td><td class="num">${shortage.value ?? "—"}</td><td>${kpiDesc("expected_shortage_count")}</td></tr>
+      <tr><td>${kpiLabel("dead_stock_count")}</td><td class="num">${dead.value ?? "—"}</td><td>${kpiDesc("dead_stock_count")}</td></tr>
+      <tr><td>${kpiLabel("replenishment_needed_count")}</td><td class="num">${replenish.value ?? "—"}</td><td>${kpiDesc("replenishment_needed_count")}</td></tr>
     </tbody></table>`;
 }
 
@@ -719,8 +731,39 @@ function setupChat() {
   bindSuggests();
 }
 
+// ---------- 실시간 수요 발생 + Toast ----------
+let LIVE = { running: false, es: null };
+
+function showToast(ev) {
+  const wrap = $("#toast-wrap"); if (!wrap) return;
+  const kind = ev.kind || "outbound";
+  const tag = kind === "inbound" ? "입고" : kind === "outbound" ? "출고" : "오류";
+  const el = document.createElement("div");
+  el.className = `toast ${kind}`;
+  el.innerHTML = `<div class="t-head"><span class="t-tag">${tag}</span>${ev.id ? safeText(ev.id) : "실시간"}<span class="t-time">${safeText(ev.ts || "")}</span></div>
+    <div class="t-body">${safeText(ev.message || "")}</div>`;
+  wrap.appendChild(el);
+  setTimeout(() => { el.classList.add("fade"); setTimeout(() => el.remove(), 300); }, 6000);
+  while (wrap.children.length > 5) wrap.firstChild.remove();
+}
+
+function setupRealtime() {
+  const btn = $("#live-toggle"); if (!btn) return;
+  // SSE 구독은 항상 유지(수동 발생 1건도 수신)
+  try {
+    LIVE.es = new EventSource("/events");
+    LIVE.es.onmessage = (e) => { try { showToast(JSON.parse(e.data)); } catch (_) {} };
+  } catch (_) {}
+  btn.addEventListener("click", async () => {
+    LIVE.running = !LIVE.running;
+    await fetch(`/realtime/${LIVE.running ? "start" : "stop"}`, { method: "POST" }).catch(() => {});
+    btn.classList.toggle("on", LIVE.running);
+    btn.innerHTML = `<i class="live-dot"></i>실시간 수요 ${LIVE.running ? "ON" : "OFF"}`;
+  });
+}
+
 async function init() {
-  setupTabs(); renderChatStub(); setupChat(); setupDataBrowser();
+  setupTabs(); renderChatStub(); setupChat(); setupDataBrowser(); setupRealtime();
   const nc = $("#new-chat"); if (nc) nc.addEventListener("click", resetChat);
   $("#run-sim").addEventListener("click", runSim);
   $("#refresh").addEventListener("click", refreshDashboard);

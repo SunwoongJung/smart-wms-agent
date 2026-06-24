@@ -34,6 +34,7 @@
         </div>
         <div class="top-right">
           <span class="updated" id="updated">최근 갱신 : --:--:--</span>
+          <button class="btn-ghost live-btn" id="live-toggle" title="실시간 수요 발생 on/off"><i class="live-dot"></i>실시간 수요 OFF</button>
           <button class="icon-btn" id="refresh" title="새로고침">⟳</button>
         </div>
       </header>
@@ -140,7 +141,7 @@
             <button class="btn-ghost" id="refresh-kpi">KPI 새로고침</button>
           </div>
 
-          <div class="kpi-row kpi-row-4" id="ops-kpi-row"></div>
+          <div class="kpi-row kpi-row-auto" id="ops-kpi-row"></div>
 
           <div class="grid-2">
             <div class="card panel-min">
@@ -197,6 +198,7 @@
       <section class="tab-panel hidden" id="panel-approval"><div class="card placeholder big">Approval — 다음 단계</div></section>
     </main>
   </div>
+  <div class="toast-wrap" id="toast-wrap"></div>
   <script src="/static/app.js"></script>
 </body>
 </html>

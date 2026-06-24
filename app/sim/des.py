@@ -105,7 +105,7 @@ def _run_once(rep, horizon_days, near_days, scenario, record=False):
             for z in zones
         }
         out = {
-            "shipping_delays": len(q("SELECT order_no FROM outbound_orders WHERE status='PLANNED'")),
+            "shipping_delays": len(q("SELECT order_no FROM outbound_orders WHERE status IN ('PLANNED','ALLOCATED')")),
             "picking_wait_avg": 0.0,
             "zone_max_occ": zone_max_occ,
             "stockout_day": {},
@@ -214,7 +214,7 @@ def _run_once(rep, horizon_days, near_days, scenario, record=False):
 
     # 출고 근거리(확정): due day 1..near_days
     near_cut = base + timedelta(days=near_days)
-    for o in q("SELECT order_no, due_datetime FROM outbound_orders WHERE status='PLANNED'"):
+    for o in q("SELECT order_no, due_datetime FROM outbound_orders WHERE status IN ('PLANNED','ALLOCATED')"):
         due_dt = datetime.strptime(o["due_datetime"], "%Y-%m-%d %H:%M")
         day_off = (due_dt.date() - base).days
         if day_off < 1 or day_off > near_days:

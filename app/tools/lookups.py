@@ -70,6 +70,15 @@ def query_operation_kpis(kpis: list[str], target_date: str | None = None) -> dic
             r = q("""SELECT AVG(CASE WHEN shipped_datetime <= due_datetime THEN 1.0 ELSE 0.0 END) rate
                      FROM outbound_orders WHERE status='SHIPPED' AND shipped_datetime IS NOT NULL""")[0]["rate"]
             out.append({"name": name, "value": round(r, 3) if r is not None else None, "unit": "percent"})
+        elif name == "expected_shortage_count":
+            from tools.allocation import expected_shortage_count
+            out.append({"name": name, "value": expected_shortage_count(target_date), "unit": "count"})
+        elif name == "dead_stock_count":
+            from tools.dead_stock import dead_stock_count
+            out.append({"name": name, "value": dead_stock_count(), "unit": "count"})
+        elif name == "replenishment_needed_count":
+            from tools.replenishment import replenishment_needed_count
+            out.append({"name": name, "value": replenishment_needed_count(), "unit": "count"})
         elif name == "stocking_completion_rate":
             r = q("""SELECT
                        SUM(CASE WHEN status='STOCKED' THEN 1 ELSE 0 END)*1.0
