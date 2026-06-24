@@ -431,6 +431,21 @@ def realtime_status():
     return realtime.status()
 
 
+class RealtimeConfigReq(BaseModel):
+    interval: int | None = None
+    outbound_ratio: float | None = None
+    out_qty_min: int | None = None
+    out_qty_max: int | None = None
+    in_qty_min: int | None = None
+    in_qty_max: int | None = None
+
+
+@app.post("/realtime/config")
+def realtime_config(r: RealtimeConfigReq):
+    """실시간 수요 생성 설정(주기·출고비율·수량 범위)."""
+    return realtime.configure(r.model_dump(exclude_none=True))
+
+
 @app.post("/realtime/emit")
 async def realtime_emit():
     """수동으로 실시간 요청 1건 발생(데모용)."""

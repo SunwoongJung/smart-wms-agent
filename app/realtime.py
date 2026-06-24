@@ -12,9 +12,35 @@ from db.database import get_connection
 from tools.common import q
 
 _subscribers: set[asyncio.Queue] = set()
-_state = {"running": False, "interval": 8, "count": 0}
+_state = {
+    "running": False, "count": 0,
+    "interval": 8,            # 생성 주기(초)
+    "outbound_ratio": 0.5,    # 출고 비율(0~1), 나머지는 입고
+    "out_qty_min": 5, "out_qty_max": 40,
+    "in_qty_min": 20, "in_qty_max": 120,
+}
+_CONFIG_KEYS = ("interval", "outbound_ratio", "out_qty_min", "out_qty_max", "in_qty_min", "in_qty_max")
 _task: asyncio.Task | None = None
 _seq = 0
+
+
+def configure(cfg: dict) -> dict:
+    """생성 주기·출고비율·수량 범위 설정(허용 키만, 안전 범위로 보정)."""
+    for k in _CONFIG_KEYS:
+        if k not in cfg or cfg[k] is None:
+            continue
+        if k == "outbound_ratio":
+            _state[k] = min(1.0, max(0.0, float(cfg[k])))
+        elif k == "interval":
+            _state[k] = max(2, int(cfg[k]))
+        else:
+            _state[k] = max(1, int(cfg[k]))
+    # min ≤ max 보정
+    if _state["out_qty_min"] > _state["out_qty_max"]:
+        _state["out_qty_max"] = _state["out_qty_min"]
+    if _state["in_qty_min"] > _state["in_qty_max"]:
+        _state["in_qty_max"] = _state["in_qty_min"]
+    return status()
 
 
 def subscribe() -> asyncio.Queue:
@@ -45,10 +71,10 @@ def generate_event() -> dict:
     sku = random.choice(skus) if skus else "SKU_A001"
     conn = get_connection()
     try:
-        if random.random() < 0.5:
+        if random.random() < _state["outbound_ratio"]:
             order_no = f"RT-O-{now.strftime('%H%M%S')}{_seq:02d}"
             due = now + timedelta(hours=random.randint(2, 8))
-            qty = random.randint(5, 40)
+            qty = random.randint(_state["out_qty_min"], _state["out_qty_max"])
             conn.execute("INSERT INTO outbound_orders(order_no,customer_id,customer_priority,due_datetime,status)"
                          " VALUES(?,?,?,?,?)",
                          (order_no, f"C{random.randint(1, 30):02d}", random.randint(1, 5),
@@ -62,7 +88,7 @@ def generate_event() -> dict:
         else:
             inbound_no = f"RT-I-{now.strftime('%H%M%S')}{_seq:02d}"
             exp = (now + timedelta(days=random.randint(0, 2))).date().isoformat()
-            qty = random.randint(20, 120)
+            qty = random.randint(_state["in_qty_min"], _state["in_qty_max"])
             conn.execute("INSERT INTO inbound_orders(inbound_no,sku,qty,expected_date,status,supplier)"
                          " VALUES(?,?,?,?,?,?)",
                          (inbound_no, sku, qty, exp, "PLANNED", f"SUP{random.randint(1, 5):02d}"))

@@ -520,15 +520,15 @@ async function refreshDashboard() {
   await runSim();
 }
 
+function activateTab(name) {
+  document.querySelectorAll(".tab").forEach((x) => x.classList.toggle("active", x.dataset.tab === name));
+  document.querySelectorAll(".tab-panel").forEach((p) => p.classList.add("hidden"));
+  const panel = $("#panel-" + name); if (panel) panel.classList.remove("hidden");
+  if (name === "approval") loadApproval().catch(() => {});
+  if (name === "trace") loadTraces().catch(() => {});
+}
 function setupTabs() {
-  document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => {
-    document.querySelectorAll(".tab").forEach((x) => x.classList.remove("active"));
-    t.classList.add("active");
-    document.querySelectorAll(".tab-panel").forEach((p) => p.classList.add("hidden"));
-    $("#panel-" + t.dataset.tab).classList.remove("hidden");
-    if (t.dataset.tab === "approval") loadApproval().catch(() => {});
-    if (t.dataset.tab === "trace") loadTraces().catch(() => {});
-  }));
+  document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => activateTab(t.dataset.tab)));
   document.querySelectorAll("#insight-tabs .seg-btn").forEach((b) => b.addEventListener("click", () => {
     document.querySelectorAll("#insight-tabs .seg-btn").forEach((x) => x.classList.remove("active"));
     b.classList.add("active"); LAST.insightTab = b.dataset.it; renderInsight();
@@ -642,6 +642,7 @@ function renderSessions() {
 }
 async function openSession(sid) {
   if (!sid) return;
+  activateTab("chat");
   CHAT.sessionId = sid;
   const r = await fetch(`/sessions/${sid}`).then((x) => x.json()).catch(() => null);
   const msgs = (r && r.messages) || [];
@@ -909,6 +910,38 @@ function setupRealtime() {
     btn.classList.toggle("on", LIVE.running);
     btn.innerHTML = `<i class="live-dot"></i>실시간 수요 ${LIVE.running ? "ON" : "OFF"}`;
   });
+  setupLiveSettings();
+}
+
+async function openLiveSettings() {
+  const s = await fetch("/realtime/status").then((x) => x.json()).catch(() => ({}));
+  $("#cfg-interval").value = s.interval ?? 8;
+  $("#cfg-ratio").value = Math.round((s.outbound_ratio ?? 0.5) * 100);
+  $("#cfg-out-min").value = s.out_qty_min ?? 5;
+  $("#cfg-out-max").value = s.out_qty_max ?? 40;
+  $("#cfg-in-min").value = s.in_qty_min ?? 20;
+  $("#cfg-in-max").value = s.in_qty_max ?? 120;
+  $("#live-modal").classList.remove("hidden");
+}
+function closeLiveSettings() { $("#live-modal").classList.add("hidden"); }
+async function saveLiveSettings() {
+  const body = {
+    interval: Number($("#cfg-interval").value),
+    outbound_ratio: Math.min(100, Math.max(0, Number($("#cfg-ratio").value))) / 100,
+    out_qty_min: Number($("#cfg-out-min").value), out_qty_max: Number($("#cfg-out-max").value),
+    in_qty_min: Number($("#cfg-in-min").value), in_qty_max: Number($("#cfg-in-max").value),
+  };
+  await fetch("/realtime/config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).catch(() => {});
+  closeLiveSettings();
+}
+function setupLiveSettings() {
+  const g = $("#live-settings"); if (!g) return;
+  g.addEventListener("click", () => openLiveSettings().catch(() => {}));
+  $("#live-modal-x").addEventListener("click", closeLiveSettings);
+  $("#live-modal-cancel").addEventListener("click", closeLiveSettings);
+  $("#live-modal-save").addEventListener("click", () => saveLiveSettings());
+  $("#live-emit-now").addEventListener("click", () => fetch("/realtime/emit", { method: "POST" }).catch(() => {}));
+  $("#live-modal").addEventListener("click", (e) => { if (e.target.id === "live-modal") closeLiveSettings(); });
 }
 
 async function init() {
@@ -916,7 +949,7 @@ async function init() {
   loadSessions().catch(() => {});
   const ss = document.querySelector(".side-search");
   if (ss) ss.addEventListener("input", (e) => { CHAT.filter = e.target.value; renderSessions(); });
-  const nc = $("#new-chat"); if (nc) nc.addEventListener("click", resetChat);
+  const nc = $("#new-chat"); if (nc) nc.addEventListener("click", () => { activateTab("chat"); resetChat(); });
   $("#run-sim").addEventListener("click", runSim);
   $("#refresh").addEventListener("click", refreshDashboard);
   $("#refresh-kpi").addEventListener("click", () => loadOperationKpis().catch(() => {}));

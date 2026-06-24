@@ -196,6 +196,20 @@ body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--f
 .ev-score { font-size: 11px; color: var(--ink-sub); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .ev-bar { height: 5px; border-radius: 3px; background: var(--accent); display: inline-block; vertical-align: middle; margin-left: 6px; }
 
+/* 모달(실시간 수요 설정) */
+.modal-overlay { position: fixed; inset: 0; background: rgba(20,30,60,.38); display: grid; place-items: center; z-index: 10000; }
+.modal { width: 420px; max-width: 92vw; background: #fff; border-radius: 16px; box-shadow: 0 18px 50px rgba(20,30,60,.28); overflow: hidden; }
+.modal-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px; font-size: 15px; font-weight: 800; border-bottom: 1px solid var(--line); }
+.modal-x { border: none; background: transparent; font-size: 22px; line-height: 1; cursor: pointer; color: var(--ink-sub); }
+.modal-body { padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; }
+.form-row { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.form-row label { font-size: 12.5px; color: var(--ink-sub); font-weight: 600; }
+.form-hint { font-weight: 500; color: #9aa3af; }
+.form-row input { width: 100%; padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px; font-size: 14px; }
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 12px; }
+.modal-foot { display: flex; align-items: center; gap: 8px; padding: 14px 18px; border-top: 1px solid var(--line); background: #fbfcfe; }
+.modal-spacer { flex: 1; }
+
 /* Placeholder panels */
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .panel-min { min-height: 220px; display: flex; flex-direction: column; }
