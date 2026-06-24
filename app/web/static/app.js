@@ -673,7 +673,8 @@ function appendBubble(role, inner) {
   const root = $("#chat-root"); if (root) root.classList.remove("is-empty");
   const wrap = document.createElement("div");
   wrap.className = "msg " + role;
-  wrap.innerHTML = `<div class="bubble">${inner}</div>`;
+  const who = role === "user" ? "user" : "ai";
+  wrap.innerHTML = `<div class="role-tag">${who} :</div><div class="bubble">${inner}</div>`;
   chatThread().appendChild(wrap); chatScrollBottom();
   return wrap;
 }

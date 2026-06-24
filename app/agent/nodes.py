@@ -58,10 +58,13 @@ def router_node(state: dict) -> dict:
         "- replenish_create: 특정 SKU 피킹면 보충 실행(상태변경). 예: \"SKU_A007 보충해줘\"\n"
         "- stocking_task_create / picking_instruction_create / shipping_confirm: 지시 생성·출고확정(상태변경)\n"
         "- risk_response_recommendation: \"부족하면 어떻게 대응?\" SOP 대응\n"
-        "- greeting: 인사·잡담. 예: \"안녕?\", \"고마워\", \"잘 지내?\"\n"
-        "- out_of_scope: WMS 운영과 무관한 질문(날씨·일반상식 등)\n"
+        "- smalltalk: 인사·잡담·자기소개·이름 등 개인정보 진술/질문, '기억해둬'·'방금 뭐라고 했어' 같은 "
+        "대화·세션 기억 관련. 예: \"안녕 내 이름은 정선웅이야\", \"내 이름 뭐야?\", "
+        "\"1번 오더 초긴급이야 기억해둬\", \"고마워\"\n"
+        "- out_of_scope: WMS·창고 운영과 전혀 무관한 일반 지식/시사/날씨 등 사실 질문(예: \"오늘 날씨\"). "
+        "단, 사용자 이름·개인정보·이전 발화 기억 요청은 out_of_scope가 아니라 smalltalk이다.\n"
         "규칙: 질의에 '왜', '이유', '어떻게 계산'이 있으면 policy_question 을 우선한다. "
-        "단순 인사·감사는 greeting(업무 목록을 나열하지 말 것).\n"
+        "인사·감사·이름·기억 요청은 smalltalk(업무 목록을 나열하지 말 것).\n"
         "이전 대화가 제공되면 대명사·생략(그 주문, 거기, 그거 등)을 직전 맥락으로 해소해 "
         "parameters(order_no·sku 등)를 채운다.\n"
         "parameters 키(있을 때만): sku, inbound_no, order_no, location_id, zone_id, target_date, kpis, scenario, scope.\n"
@@ -200,13 +203,20 @@ _HANDLERS = {
     "replenishment_query": _h_replenishment_query, "replenish_create": _h_replenish_create,
     "risk_response_recommendation": _h_risk_response, "stocking_task_create": _h_stocking_create,
     "picking_instruction_create": _h_picking_create, "shipping_confirm": _h_shipping_confirm,
-    "policy_question": lambda p: {}, "greeting": lambda p: {}, "out_of_scope": lambda p: {},
+    "policy_question": lambda p: {}, "smalltalk": lambda p: {},
+    "greeting": lambda p: {}, "out_of_scope": lambda p: {},
 }
 
-GREETING_MSG = ("안녕하세요, Smart WMS Agent입니다. 오늘 할 일 요약, 적치·피킹 추천, "
-                "재고 소진 예측, 창고 시뮬레이션(What-if), KPI 조회를 도와드립니다. 무엇을 도와드릴까요?")
-OUT_OF_SCOPE_MSG = ("WMS 운영 업무만 지원합니다. 오늘 할 일, 적치·피킹 추천, 재고 리스크 예측, "
-                    "창고 시뮬레이션, KPI 조회 등을 요청해 주세요.")
+# 대화/인사/세션 기억용 페르소나 — Tool 없이 history를 활용해 응답
+_CONVERSATION_PERSONA = (
+    "당신은 'Smart WMS Agent', 창고 운영 Copilot입니다. 간결한 존댓말, 이모지·과장 금지.\n"
+    "recent_dialogue(이전 대화)를 적극 활용해 사용자가 말한 이름·선호·지시('기억해둬' 등)를 "
+    "그 세션 동안 기억하고 반영합니다.\n"
+    "사용자가 이름을 알려주면 기억하고, 이름을 물으면 이전 대화에서 찾아 답합니다. 모르면 모른다고 합니다.\n"
+    "단순 인사에는 간단히 인사로 답하고, 매번 기능 목록을 나열하지 않습니다.\n"
+    "WMS·창고 운영과 무관한 일반 지식/날씨/시사 질문은 정중히 'WMS 운영 관련만 도와드린다'고 안내합니다. "
+    "단, 이름·개인정보·이전 발화 기억 요청은 범위 밖이 아니라 정상 응대합니다."
+)
 
 
 def tool_executor_node(state: dict) -> dict:
@@ -254,14 +264,22 @@ _PERSONA = (
 
 
 def response_generator_node(state: dict) -> dict:
-    if state.get("intent") == "greeting":
-        return {"final_response": GREETING_MSG}
-    if state.get("intent") == "out_of_scope":
-        return {"final_response": OUT_OF_SCOPE_MSG}
+    intent = state.get("intent")
     if state.get("missing_parameters"):
         return {"final_response": f"다음 정보가 필요합니다: {', '.join(state['missing_parameters'])}"}
-    if state.get("_rag_abstain") and state.get("intent") == "policy_question":
+    if state.get("_rag_abstain") and intent == "policy_question":
         return {"final_response": state.get("_rag_abstain_msg") or "문서 근거가 부족합니다."}
+    # 대화·인사·세션 기억: Tool 없이 history를 활용해 응답
+    if intent in ("smalltalk", "greeting", "out_of_scope"):
+        ctx = {"intent": intent, "user_query": state.get("user_query"),
+               "recent_dialogue": (state.get("history") or [])[-8:]}
+        user = ("아래 이전 대화(recent_dialogue)를 참고해 현재 질문(user_query)에 자연스럽게 답하세요. "
+                "JSON 아님, 자연어.\n" + json.dumps(ctx, ensure_ascii=False, default=str)[:4000])
+        resp = get_client().chat.completions.create(
+            model=settings.openai_chat_model,
+            messages=[{"role": "system", "content": _CONVERSATION_PERSONA},
+                      {"role": "user", "content": user}])
+        return {"final_response": resp.choices[0].message.content}
     tr = state.get("tool_results", {}) or {}
     context = {"intent": state.get("intent"), "tool_results": tr,
                "rag_evidence": state.get("rag_context", []),

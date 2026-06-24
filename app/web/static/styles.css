@@ -272,9 +272,11 @@ body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--f
 .sug { background: #fff; border: 1px solid #dedede; border-radius: 999px; padding: 8px 13px; font-size: 12.5px; color: #343541; cursor: pointer; }
 .sug:hover { background: #f0f0f0; border-color: #cfcfcf; }
 
-.msg { display: flex; width: 100%; }
-.msg.user { justify-content: flex-end; }
-.msg.bot { justify-content: flex-start; }
+.msg { display: flex; flex-direction: column; width: 100%; }
+.msg.user { align-items: flex-end; }
+.msg.bot { align-items: flex-start; }
+.msg .role-tag { font-size: 11px; font-weight: 700; color: var(--ink-sub); margin: 0 4px 3px; letter-spacing: .2px; }
+.msg.bot .role-tag { color: var(--accent-ink); }
 .msg .bubble { max-width: 76%; padding: 13px 16px; border-radius: 18px; font-size: 14px; line-height: 1.65; word-break: break-word; }
 .msg.user .bubble { background: #e9e9e9; color: #202123; border-bottom-right-radius: 6px; }
 .msg.bot .bubble { max-width: 100%; background: transparent; color: #202123; padding-left: 0; padding-right: 0; }

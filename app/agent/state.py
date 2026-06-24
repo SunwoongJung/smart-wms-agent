@@ -34,7 +34,7 @@ INTENTS = [
     "dead_stock_query", "disposal_create", "replenishment_query", "replenish_create",
     "inventory_risk", "risk_response_recommendation", "shipping_pending_query",
     "shipping_confirm", "kpi_query", "simulation_query", "policy_question",
-    "greeting", "out_of_scope",
+    "smalltalk", "greeting", "out_of_scope",
 ]
 
 # 인텐트별 필수 파라미터
