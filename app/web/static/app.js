@@ -181,16 +181,22 @@ function renderKpiDashboard() {
   renderSimKpiDashboard();
 }
 
+let DATA = { dataset: "snapshot" };
+
+function renderDatasetTabs() {
+  const bar = $("#dataset-tabs"); if (!bar) return;
+  bar.innerHTML = DATASET_ORDER.map((id) =>
+    `<button class="ds-tab${id === DATA.dataset ? " active" : ""}" data-ds="${id}">${DATASET_META[id][0]}</button>`).join("");
+  bar.querySelectorAll(".ds-tab").forEach((b) => b.addEventListener("click", () => {
+    DATA.dataset = b.dataset.ds;
+    renderDatasetTabs();
+    loadRawData();
+  }));
+}
+
 function setupDataBrowser() {
-  const sel = $("#data-dataset");
-  if (!sel) return;
-  sel.innerHTML = DATASET_ORDER.map((id) => `<option value="${id}">${DATASET_META[id][0]}</option>`).join("");
-  ["data-dataset", "data-status", "data-sku", "data-zone", "data-date"].forEach((id) => {
-    const el = $("#" + id);
-    if (el) el.addEventListener("change", loadRawData);
-  });
-  const qInput = $("#data-q");
-  if (qInput) qInput.addEventListener("keydown", (e) => { if (e.key === "Enter") loadRawData(); });
+  const bar = $("#dataset-tabs"); if (!bar) return;
+  renderDatasetTabs();
 }
 
 function renderSnapshot(s) {
@@ -228,7 +234,8 @@ function cellValue(v) {
 function renderRawTable(data) {
   const meta = DATASET_META[data.dataset] || [data.dataset, ""];
   $("#data-table-title").textContent = meta[0];
-  $("#data-table-meta").textContent = `${meta[1]} · ${data.total}건`;
+  const desc = $("#data-table-desc"); if (desc) desc.textContent = meta[1] || "";
+  $("#data-table-meta").textContent = `${data.total}건`;
   if (!data.rows || !data.rows.length) {
     $("#raw-data-table").innerHTML = `<div class="raw-empty">조회 결과가 없습니다.</div>`;
     return;
@@ -240,7 +247,7 @@ function renderRawTable(data) {
 }
 
 async function loadRawData() {
-  const dataset = $("#data-dataset")?.value || "snapshot";
+  const dataset = DATA.dataset || "snapshot";
   if (dataset === "snapshot") {
     const s = await loadDataSnapshot();
     renderRawTable({
@@ -250,16 +257,7 @@ async function loadRawData() {
     });
     return;
   }
-  const params = new URLSearchParams({ limit: "200", offset: "0" });
-  const filters = [
-    ["status", $("#data-status")?.value],
-    ["sku", $("#data-sku")?.value],
-    ["zone_id", $("#data-zone")?.value],
-    ["date", $("#data-date")?.value],
-    ["qtext", $("#data-q")?.value],
-  ];
-  filters.forEach(([k, v]) => { if (v) params.set(k, v); });
-  const data = await fetch(`/data/${encodeURIComponent(dataset)}?${params.toString()}`).then((x) => x.json());
+  const data = await fetch(`/data/${encodeURIComponent(dataset)}?limit=200&offset=0`).then((x) => x.json());
   renderRawTable(data);
 }
 

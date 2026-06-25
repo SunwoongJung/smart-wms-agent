@@ -177,18 +177,14 @@
 
           <div class="snapshot-grid" id="snapshot-grid"></div>
 
-          <div class="data-controls card">
-            <div class="ctrl"><label>데이터셋</label><select id="data-dataset"></select></div>
-            <div class="ctrl"><label>상태/유형</label><input id="data-status" placeholder="예: RECEIVED" /></div>
-            <div class="ctrl"><label>SKU</label><input id="data-sku" placeholder="SKU_A001" /></div>
-            <div class="ctrl"><label>Zone</label><input id="data-zone" placeholder="ZONE_A" /></div>
-            <div class="ctrl"><label>날짜</label><input id="data-date" type="date" /></div>
-            <div class="ctrl data-search"><label>검색</label><input id="data-q" placeholder="번호, 명칭, 상태 검색" /></div>
-          </div>
+          <div class="dataset-tabs" id="dataset-tabs"></div>
 
           <div class="card">
             <div class="panel-head data-table-head">
-              <span id="data-table-title">원본 데이터</span>
+              <div class="dt-titlewrap">
+                <span id="data-table-title">원본 데이터</span>
+                <div class="data-table-desc" id="data-table-desc"></div>
+              </div>
               <span class="head-sub" id="data-table-meta">--</span>
             </div>
             <div class="panel-body">

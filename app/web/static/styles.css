@@ -196,6 +196,14 @@ body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--f
 .ev-score { font-size: 11px; color: var(--ink-sub); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .ev-bar { height: 5px; border-radius: 3px; background: var(--accent); display: inline-block; vertical-align: middle; margin-left: 6px; }
 
+/* 운영 데이터 — 데이터셋 탭 */
+.dt-titlewrap { display: flex; flex-direction: column; gap: 2px; }
+.data-table-desc { font-size: 12px; color: var(--ink-sub); font-weight: 500; }
+.dataset-tabs { display: flex; flex-wrap: wrap; gap: 6px; background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 8px; box-shadow: var(--shadow); }
+.ds-tab { border: 1px solid transparent; background: transparent; padding: 7px 12px; border-radius: 9px; cursor: pointer; font-size: 12.5px; font-weight: 600; color: var(--ink-sub); white-space: nowrap; }
+.ds-tab:hover { background: #f3f6fb; }
+.ds-tab.active { background: #eaf0ff; color: var(--accent-ink); border-color: #c9d8ff; }
+
 /* 모달(실시간 수요 설정) */
 .modal-overlay { position: fixed; inset: 0; background: rgba(20,30,60,.38); display: grid; place-items: center; z-index: 10000; }
 .modal { width: 420px; max-width: 92vw; background: #fff; border-radius: 16px; box-shadow: 0 18px 50px rgba(20,30,60,.28); overflow: hidden; }

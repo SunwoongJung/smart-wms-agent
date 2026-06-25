@@ -473,9 +473,20 @@ def trace(run_id: str):
 
 
 # --- SPA(커스텀 프론트엔드) 서빙 ---
+_NO_CACHE = {"Cache-Control": "no-cache, must-revalidate"}
+
+
 @app.get("/")
 def index():
-    return FileResponse(WEB_DIR / "index.html")
+    return FileResponse(WEB_DIR / "index.html", headers=_NO_CACHE)
 
 
-app.mount("/static", StaticFiles(directory=WEB_DIR / "static"), name="static")
+class _NoCacheStatic(StaticFiles):
+    """정적 자산을 항상 재검증(no-cache)해 코드 변경이 새로고침으로 즉시 반영되게 한다."""
+    def file_response(self, *args, **kwargs):
+        resp = super().file_response(*args, **kwargs)
+        resp.headers["Cache-Control"] = "no-cache, must-revalidate"
+        return resp
+
+
+app.mount("/static", _NoCacheStatic(directory=WEB_DIR / "static"), name="static")
