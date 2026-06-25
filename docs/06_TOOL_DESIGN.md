@@ -336,3 +336,6 @@ Draft의 상태변경 결과를 실제 반영 없이 미리 계산한다.
 ### 11.4 Draft 액션 확장
 기존 STOCKING/PICKING/SHIPPING에 **ALLOCATION / REPLENISH / DISPOSAL** 추가. 모두 dry-run + 승인 후 실행.
 DISPOSAL은 해당 SKU의 AVAILABLE 재고를 HOLD로 전환(출고 풀 제외).
+
+### 11.5 고회전 적치 가중 (2026-06-25)
+`calculate_stocking_score`에서 **고회전 SKU(fast_moving_flag)는 거리 가중을 2배(0.20→0.40)** 적용 → 입구 근처 존 우선 선택. (회전율 가중은 SKU 단위 상수라 위치 순위에 영향이 없던 한계를 보완.) 보관조건 일치(냉장→냉장 존)는 여전히 하드 필터.

@@ -37,13 +37,13 @@ RNG = np.random.default_rng(SEED)        # 대량 데이터(수요/주문/입고
 
 # --- Zone 구성: 3x3 그리드 ---
 ZONES = [
-    ("ZONE_A", "A-고회전 일반", "NORMAL", 10.0, 1, 12),
+    ("ZONE_A", "A-입구(일반)", "NORMAL", 10.0, 1, 12),
     ("ZONE_B", "B-일반", "NORMAL", 15.0, 2, 11),
     ("ZONE_C", "C-일반", "NORMAL", 20.0, 3, 11),
     ("ZONE_D", "D-일반", "NORMAL", 25.0, 3, 11),
     ("ZONE_E", "E-냉장", "COLD", 30.0, 4, 11),
     ("ZONE_F", "F-냉장", "COLD", 35.0, 4, 11),
-    ("ZONE_G", "G-냉동", "FROZEN", 40.0, 5, 11),
+    ("ZONE_G", "G-일반", "NORMAL", 40.0, 5, 11),
     ("ZONE_H", "H-일반", "NORMAL", 45.0, 4, 11),
     ("ZONE_I", "I-저회전/보관", "NORMAL", 55.0, 5, 11),
 ]
@@ -60,7 +60,6 @@ REQUIRED_SKUS = [
     ("SKU_A006", "A제품-006(체화)", "GEN", "NORMAL", 0, 10, "stable", 0),  # 무동 체화 시연
     ("SKU_A007", "A제품-007(보충)", "GEN", "NORMAL", 1, 10, "stable", 10),  # 피킹면 보충 시연
     ("SKU_C001", "냉장-001", "COLD", "COLD", 0, 15, "stable", 4),
-    ("SKU_F001", "냉동-001", "FROZEN", "FROZEN", 0, 10, "stable", 3),
 ]
 DEAD_DEMO_SKU = "SKU_A006"               # 최근 무출고(체화) 시연용 SKU
 # 피킹면(PICK) 부족 + 보관(RESERVE) 보유 → 보충 시연용 SKU(아래 preset로 배치)
@@ -76,8 +75,6 @@ def _dt(dt: datetime) -> str:
 
 
 def _unit_cost(st: str) -> float:
-    if st == "FROZEN":
-        return round(float(RNG.uniform(10000, 40000)), -2)
     if st == "COLD":
         return round(float(RNG.uniform(8000, 30000)), -2)
     return round(float(RNG.uniform(2000, 15000)), -2)
@@ -101,8 +98,8 @@ def gen_products():
         required_base[sku] = base
     for i in range(len(REQUIRED_SKUS) + 1, N_SKUS + 1):
         r = random.random()
-        st = "COLD" if r < 0.15 else "FROZEN" if r < 0.25 else "NORMAL"
-        fm = 1 if random.random() < 0.18 else 0
+        st = "COLD" if r < 0.15 else "NORMAL"      # 냉장 ≈15%, 나머지 일반(냉동 폐지)
+        fm = 1 if random.random() < 0.10 else 0     # 고회전 ≈ 전체의 10%
         sku = f"SKU_G{i:03d}"
         vol, wt = _vol_wt()
         products.append(dict(sku=sku, product_name=f"일반-{i:03d}", category="GEN",
@@ -150,7 +147,7 @@ def _shelf_life_days(st: str) -> int:
 def gen_inventory(products, storage_by_sku, locations, zone_of):
     required_set = {s[0] for s in REQUIRED_SKUS}
     shelf_managed = {p["sku"] for p in products if p["shelf_life_managed"]}
-    skus_by_storage = {"NORMAL": [], "COLD": [], "FROZEN": []}
+    skus_by_storage = {"NORMAL": [], "COLD": []}
     for p in products:
         if p["sku"] in required_set:
             continue
@@ -176,7 +173,6 @@ def gen_inventory(products, storage_by_sku, locations, zone_of):
         ("L-B-003", "SKU_A004", 30),   # 3일 뒤 입고예정(INB004)으로 회복
         ("L-B-002", "SKU_A005", 200),  # 안정 LOW
         ("L-E-001", "SKU_C001", 50),   # 냉장 → ZONE_E(COLD)
-        ("L-G-001", "SKU_F001", 40),   # 냉동 → ZONE_G(FROZEN)
         ("L-I-001", "SKU_A006", 90),   # 체화 시연(무출고) → ZONE_I(저회전/보관)
         ("L-D-001", "SKU_A007", 8),    # 보충 시연: 피킹면(PICK, ZONE_D) 재고 부족
         ("L-D-003", "SKU_A007", 100),  # 보충 시연: 보관(RESERVE, ZONE_D)에 보충용 재고 보유
@@ -303,6 +299,8 @@ def gen_outbound(products, customers, demand_map):
     orders, lines = [], []
     line_seq = 1
     normal_skus = [p["sku"] for p in products if p["storage_type"] == "NORMAL"]
+    fast_skus = [p["sku"] for p in products if p["fast_moving_flag"] and p["storage_type"] == "NORMAL"]
+    order_pool = normal_skus + fast_skus * 4   # 고회전 SKU 출고 빈도 ↑(가중)
 
     def add_line(order_no, sku, qty, line_status="PLANNED", allocated=0, picked=0, shipped=0):
         nonlocal line_seq
@@ -336,7 +334,7 @@ def gen_outbound(products, customers, demand_map):
             due = datetime.combine(day, time(random.randint(9, 17), random.choice([0, 30])))
         add_order(f"ORD{i:03d}", f"C{random.randint(1, N_CUSTOMERS):02d}", random.randint(1, 5), due, "PLANNED")
         for _ in range(random.randint(1, 3)):
-            add_line(f"ORD{i:03d}", random.choice(normal_skus), random.randint(5, 40))
+            add_line(f"ORD{i:03d}", random.choice(order_pool), random.randint(5, 40))
 
     # 과거 SHIPPED 이력 — demand_map(일·SKU 합계)을 주문으로 묶음(정합) + 정시/지연
     shipped_orders = []

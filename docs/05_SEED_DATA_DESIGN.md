@@ -133,3 +133,8 @@ seed/process_time_params.csv
 - 결품 시연: `ORD005` = SKU_A001 300 요청(가용 120) → 할당 부족 180.
 - 로케이션 역할: 존마다 첫 로케이션(L-x-001)=PICK, 나머지=RESERVE.
 - 출고 라인: 과거 SHIPPED는 line_status=SHIPPED·전량 수량, 현재 PLANNED는 0/PLANNED.
+
+## 11. 냉장·고회전 시드 (2026-06-25)
+- **타입 단순화**: 냉동(FROZEN) 폐지 → 냉장(COLD)/일반(NORMAL)만. SKU_F001 삭제, ZONE_G 일반 전환. 냉장 존은 E·F 2개.
+- **분포**: 비필수 SKU 보관타입 냉장 ≈15%, 고회전(fast_moving) ≈ 전체의 10%(≈14/150).
+- **고회전 SKU**: 입구 근처 적재 의도(적치 거리 가중 2배, 06 §11.5) + 출고요청 빈도↑(주문 SKU 풀에 4배 가중) + 기저수요↑. 예: SKU_A003 → ZONE_A(입구).

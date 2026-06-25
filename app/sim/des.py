@@ -83,6 +83,7 @@ def _run_once(rep, horizon_days, near_days, scenario, record=False):
     """단일 replication. record=True면 대표 run용 시계열/이벤트도 수집."""
     rng = np.random.default_rng(settings.des_random_seed + rep)
     products, zones, sku_qty, sku_zone, zone_occ, resources, ptp = _load_static()
+    fast_skus = {s for s, p in products.items() if p["fast_moving_flag"]}  # 고회전 → 지연비용 10배
 
     # --- 시나리오 적용 (What-if) ---
     sc = scenario or {}
@@ -104,8 +105,15 @@ def _run_once(rep, horizon_days, near_days, scenario, record=False):
             z: (zone_occ[z] / zones[z]["max_capacity"] if zones[z]["max_capacity"] else 0)
             for z in zones
         }
+        act = q("SELECT order_no FROM outbound_orders WHERE status IN ('PLANNED','ALLOCATED')")
+        dc = q("""SELECT COALESCE(SUM(CASE WHEN has_fast=1 THEN 10 ELSE 1 END),0) c FROM (
+                    SELECT o.order_no, MAX(CASE WHEN p.fast_moving_flag=1 THEN 1 ELSE 0 END) has_fast
+                    FROM outbound_orders o JOIN outbound_order_lines l ON l.order_no=o.order_no
+                    JOIN products p ON p.sku=l.sku WHERE o.status IN ('PLANNED','ALLOCATED')
+                    GROUP BY o.order_no)""")[0]["c"]
         out = {
-            "shipping_delays": len(q("SELECT order_no FROM outbound_orders WHERE status IN ('PLANNED','ALLOCATED')")),
+            "shipping_delays": len(act),
+            "delay_cost": dc,
             "picking_wait_avg": 0.0,
             "zone_max_occ": zone_max_occ,
             "stockout_day": {},
@@ -122,7 +130,7 @@ def _run_once(rep, horizon_days, near_days, scenario, record=False):
     env = simpy.Environment()
     teams = simpy.Resource(env, capacity=team_n)
 
-    metrics = {"picking_waits": [], "shipping_delays": 0, "orders": 0,
+    metrics = {"picking_waits": [], "shipping_delays": 0, "delay_cost": 0.0, "orders": 0,
                "stockout_min": {}, "zone_max_occ": {z: 0.0 for z in zones},
                "team_busy": 0.0}
     events, ts, inv_proj = [], [], []
@@ -182,10 +190,12 @@ def _run_once(rep, horizon_days, near_days, scenario, record=False):
         teams.release(req)
         metrics["orders"] += 1
         if env.now > due_min:
+            w = 10 if any(s in fast_skus for s, _ in lines) else 1  # 고회전 포함 주문 지연비용 10배
             metrics["shipping_delays"] += 1
+            metrics["delay_cost"] += w
             if record:
                 events.append({"sim_time": _sim_label(env.now), "event_type": "SHIPPING_DELAY",
-                               "detail": {"order_no": order_no, "due": _sim_label(due_min)}})
+                               "detail": {"order_no": order_no, "due": _sim_label(due_min), "cost_weight": w}})
         touch_zone_peak()
 
     def monitor():
@@ -261,6 +271,7 @@ def _run_once(rep, horizon_days, near_days, scenario, record=False):
     util_team = metrics["team_busy"] / (team_n * horizon_min)
     out = {
         "shipping_delays": metrics["shipping_delays"],
+        "delay_cost": metrics["delay_cost"],
         "picking_wait_avg": statistics.mean(metrics["picking_waits"]) if metrics["picking_waits"] else 0.0,
         "zone_max_occ": metrics["zone_max_occ"],
         "stockout_day": {s: int(m // MIN_PER_DAY) + 1 for s, m in metrics["stockout_min"].items()},
@@ -302,6 +313,7 @@ def run_des_simulation(horizon_days: int = 14, near_future_days: int | None = No
     base = _base_date()
 
     delays = [r["shipping_delays"] for r in runs]
+    costs = [r.get("delay_cost", 0) for r in runs]
     waits = [r["picking_wait_avg"] for r in runs]
     util_t = [r["util_team"] for r in runs]
     zones = list(rep0["zone_max_occ"].keys())
@@ -310,6 +322,8 @@ def run_des_simulation(horizon_days: int = 14, near_future_days: int | None = No
         {"kpi_name": "shipping_delay_count", "mean": round(statistics.mean(delays), 2),
          "p90": _pctl(delays, 90), "occurrence_prob": round(sum(1 for d in delays if d > 0) / len(delays), 3),
          "unit": "count"},
+        {"kpi_name": "shipping_delay_cost", "mean": round(statistics.mean(costs), 2),
+         "p90": _pctl(costs, 90), "unit": "cost"},
         {"kpi_name": "picking_wait_minutes", "p50": round(_pctl(waits, 50), 1),
          "p90": round(_pctl(waits, 90), 1), "unit": "minutes"},
         {"kpi_name": "resource_utilization_team", "mean": round(statistics.mean(util_t), 3), "unit": "percent"},

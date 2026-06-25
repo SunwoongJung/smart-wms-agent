@@ -16,6 +16,7 @@ const KPI_META = {
   dead_stock_count: { label: "체화재고 SKU 수", desc: "저회전·최근 14일 무출고·유통기한 임박 중 하나 이상에 해당하는 SKU 수", unit: "개" },
   replenishment_needed_count: { label: "보충 필요 SKU 수", desc: "피킹 로케이션이 목표 재고 미만이고 보관에 보충 가능 재고가 있는 SKU 수", unit: "개" },
   shipping_delay_count: { label: "출고 지연 건수", desc: "시뮬레이션 기간 내 납기 초과가 발생한 출고 건수", unit: "건" },
+  shipping_delay_cost: { label: "지연 비용(가중)", desc: "납기 초과 비용 — 고회전 SKU 포함 주문은 일반의 10배로 가중", unit: "" },
   picking_wait_minutes: { label: "피킹 대기 시간", desc: "피킹 작업이 시작되기 전까지 대기한 시간", unit: "분" },
   resource_utilization_team: { label: "작업팀 가동률", desc: "작업자 2명과 지게차 1대로 구성된 작업팀의 평균 사용률", unit: "%" },
   zone_max_occupancy: { label: "Zone 최대 점유율", desc: "시뮬레이션 중 각 Zone이 도달한 최대 점유율", unit: "%" },
@@ -69,9 +70,11 @@ function deltaChip(row, field, lowerIsBetter = true) {
 
 function renderKpis(res, comparison, invValue) {
   const sd = kpi(res, "shipping_delay_count"), pw = kpi(res, "picking_wait_minutes"), ut = kpi(res, "resource_utilization_team");
+  const dc = kpi(res, "shipping_delay_cost");
   const so = earliestStockout(res), soDays = so ? daysFromBase(so.p50) : null;
   const cards = [
     { ico: "🕐", label: kpiLabel("shipping_delay_count"), val: fmtNum(sd.mean, 2), unit: "건", delta: deltaChip(cmpRow(comparison, "shipping_delay_count"), "mean") },
+    { ico: "💸", label: kpiLabel("shipping_delay_cost"), val: fmtNum(dc.mean, 0), unit: "", delta: deltaChip(cmpRow(comparison, "shipping_delay_cost"), "mean") },
     { ico: "⏳", label: kpiLabel("picking_wait_minutes"), val: fmtNum(pw.p90, 1), unit: "분", delta: deltaChip(cmpRow(comparison, "picking_wait_minutes"), "p90") },
     { ico: "👥", label: kpiLabel("resource_utilization_team"), val: ut.mean != null ? fmtNum(ut.mean * 100, 1) : "—", unit: "%", delta: deltaChip(cmpRow(comparison, "resource_utilization_team"), "mean", false) },
     { ico: "📅", label: kpiLabel("expected_stockout_date"), val: soDays != null ? "D+" + soDays : "—", unit: "", delta: `<span class="kpi-delta flat">${so ? so.p50 : "소진 없음"}</span>` },
@@ -537,6 +540,13 @@ function setupTabs() {
 }
 
 /* ---------- 디지털 트윈 (2D SVG) ---------- */
+let COLDZONES = new Set();
+async function loadZoneTypes() {
+  try {
+    const z = await fetch("/data/zones?limit=20").then((x) => x.json());
+    COLDZONES = new Set((z.rows || []).filter((r) => r.storage_type === "COLD").map((r) => r.zone_id));
+  } catch (_) { COLDZONES = new Set(); }
+}
 const TW = { frames: [], occByDay: {}, zpos: {}, entrance: [1, -0.5], idx: 0, timer: null };
 const TW_W = 560, TW_H = 300, TW_XMIN = -1, TW_XMAX = 3, TW_YMIN = -1.2, TW_YMAX = 2.8, ZH = 0.4;
 const txc = (x) => ((x - TW_XMIN) / (TW_XMAX - TW_XMIN)) * TW_W;
@@ -557,7 +567,12 @@ function twFrameSvg(i) {
   for (const [z, p] of Object.entries(TW.zpos)) {
     const x0 = txc(p[0] - ZH), y0 = tyc(p[1] + ZH), w = txc(p[0] + ZH) - x0, h = tyc(p[1] - ZH) - y0;
     const ratio = occ[z] || 0;
-    s += `<rect x="${x0}" y="${y0}" width="${w}" height="${h}" rx="6" fill="${occColor(ratio)}" stroke="#c7d2e6"/>`;
+    const cold = COLDZONES.has(z);
+    s += `<rect x="${x0}" y="${y0}" width="${w}" height="${h}" rx="6" fill="${occColor(ratio)}" stroke="${cold ? "#3b82f6" : "#c7d2e6"}" stroke-width="${cold ? 2 : 1}"${cold ? ' stroke-dasharray="4 3"' : ""}/>`;
+    if (cold) {
+      s += `<rect x="${x0}" y="${y0}" width="${w}" height="${h}" rx="6" fill="#3b82f6" fill-opacity="0.12"/>`;
+      s += `<text x="${x0 + 11}" y="${y0 + 15}" font-size="12">❄</text>`;
+    }
     s += `<text x="${txc(p[0])}" y="${tyc(p[1]) - 4}" font-size="11" font-weight="600" fill="#33415a" text-anchor="middle">${z.replace("ZONE_", "")}</text>`;
     s += `<text x="${txc(p[0])}" y="${tyc(p[1]) + 11}" font-size="9" fill="#5d6573" text-anchor="middle">${Math.round(ratio * 100)}%</text>`;
   }
@@ -957,6 +972,7 @@ async function init() {
   $("#commit-baseline").addEventListener("click", commitBaseline);
   $("#tw-play").addEventListener("click", twTogglePlay);
   $("#tw-range").addEventListener("input", (e) => { if (TW.timer) twTogglePlay(); twSetFrame(Number(e.target.value)); });
+  await loadZoneTypes().catch(() => {});
   await loadResources();
   await loadOperationKpis().catch(() => {});
   await refreshDataBrowser().catch(() => {});

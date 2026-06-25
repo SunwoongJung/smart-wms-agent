@@ -63,6 +63,9 @@ def calculate_stocking_score(sku: str, candidates: list[str]) -> dict:
     min_d, max_d = min(dists), max(dists)
     same = set(check_same_sku_location(sku)["locations"])
     turnover_norm = clip(_sku_turnover(sku) / (_max_turnover() or 1.0))
+    # 고회전 SKU는 입구 근처 적재가 더 중요 → 거리 가중을 2배로
+    fast = bool((_product(sku) or {}).get("fast_moving_flag"))
+    w_dist = W_DISTANCE * (2 if fast else 1)
 
     marks = ",".join("?" for _ in candidates)
     locs = q(f"""SELECT l.location_id, l.zone_id, z.distance_from_gate AS dist
@@ -78,7 +81,7 @@ def calculate_stocking_score(sku: str, candidates: list[str]) -> dict:
         dist_norm = clip(1 - (lo["dist"] - min_d) / (max_d - min_d)) if max_d > min_d else 1.0
         cong_norm = clip((zocc_ratio - 0.9) / 0.1) if zocc_ratio > 0.9 else 0.0
         same_norm = 1.0 if lo["location_id"] in same else 0.0
-        score = (W_SAME_SKU * same_norm + W_CAPACITY * cap_norm + W_DISTANCE * dist_norm
+        score = (W_SAME_SKU * same_norm + W_CAPACITY * cap_norm + w_dist * dist_norm
                  + W_TURNOVER * turnover_norm - W_CONGESTION * cong_norm)
         scores.append({
             "location_id": lo["location_id"],

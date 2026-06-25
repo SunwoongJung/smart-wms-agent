@@ -196,6 +196,8 @@ body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--f
 .ev-score { font-size: 11px; color: var(--ink-sub); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .ev-bar { height: 5px; border-radius: 3px; background: var(--accent); display: inline-block; vertical-align: middle; margin-left: 6px; }
 
+.cold-leg { color: #2563eb; font-weight: 600; }
+
 /* 운영 데이터 — 데이터셋 탭 */
 .dt-titlewrap { display: flex; flex-direction: column; gap: 2px; }
 .data-table-desc { font-size: 12px; color: var(--ink-sub); font-weight: 500; }

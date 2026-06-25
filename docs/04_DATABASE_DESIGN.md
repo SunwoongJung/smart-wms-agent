@@ -348,3 +348,6 @@ CREATE INDEX idx_sim_events_run ON simulation_events(sim_run_id);
 `agent_traces(run_id, session_id, query, intent, confidence, rag_required, answerable, sufficiency, retries, abstain, approval_required, steps_json, final_response, created_at)`
 
 > 기존 DB는 `ensure_allocation_columns`/`ensure_location_role_column`/`ensure_chat_tables`/`ensure_trace_table`로 무중단 자동 마이그레이션(ALTER/CREATE IF NOT EXISTS).
+
+### 7.5 보관타입 단순화 (2026-06-25)
+`storage_type` 값에서 **FROZEN(냉동) 폐지 → COLD(냉장)·NORMAL(일반) 2종만** 사용. zones도 냉장 2개(E·F)·나머지 일반. 냉장 제품은 냉장 존에만 적재(하드 제약, 06 §5).
