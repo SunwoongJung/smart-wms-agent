@@ -235,6 +235,8 @@ async def chat_stream(r: ChatReq):
 
     def worker():
         final: dict = {}
+        trace_store.set_sink(lambda ev: loop.call_soon_threadsafe(
+            queue.put_nowait, {"type": "substep", **ev}))   # 노드 내부 세밀 이벤트
         try:
             for node_id, snap in stream_run(r.query, r.user_id, history):
                 final = snap
@@ -244,7 +246,9 @@ async def chat_stream(r: ChatReq):
             loop.call_soon_threadsafe(queue.put_nowait, {"type": "final", "state": final})
         except Exception as e:  # noqa: BLE001
             loop.call_soon_threadsafe(queue.put_nowait, {"type": "error", "message": str(e)})
-        loop.call_soon_threadsafe(queue.put_nowait, None)
+        finally:
+            trace_store.clear_sink()
+            loop.call_soon_threadsafe(queue.put_nowait, None)
 
     loop.run_in_executor(None, worker)
 

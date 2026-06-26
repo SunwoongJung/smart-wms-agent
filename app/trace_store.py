@@ -4,11 +4,33 @@
 최종 상태에서 노드별 입출력을 재구성해 agent_traces에 저장한다. AI 동작 검증 화면이 이를 읽는다.
 """
 import json
+import threading
 import uuid
 from datetime import datetime
 
 from db.database import get_connection
 from tools.common import q
+
+# 노드 내부 세밀 이벤트 버스 — 동기 그래프가 한 스레드에서 돌므로 thread-local 싱크.
+# /chat/stream 워커가 set_sink로 SSE 큐 push를 걸고, retriever 등 내부에서 emit() 호출.
+_emit_local = threading.local()
+
+
+def set_sink(fn) -> None:
+    _emit_local.sink = fn
+
+
+def clear_sink() -> None:
+    _emit_local.sink = None
+
+
+def emit(**event) -> None:
+    fn = getattr(_emit_local, "sink", None)
+    if fn:
+        try:
+            fn(event)
+        except Exception:
+            pass
 
 
 def ensure_trace_table() -> None:

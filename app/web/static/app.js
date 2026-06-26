@@ -890,8 +890,27 @@ function liveSummary(node, o) {
     default: return "";
   }
 }
+function subSummary(ev) {
+  switch (ev.kind) {
+    case "search": return `검색 #${ev.attempt} · 후보 ${ev.candidates}개`;
+    case "rerank": return `PRISM 리랭크 #${ev.attempt} · ` + ((ev.top || []).map((t) => `${t.source}(rel ${t.relevance})`).join(", ") || "후보 없음");
+    case "sufficiency": return `충분성 #${ev.attempt} · ${ev.score} · ${ev.answerable ? "충분" : "부족"}` + ((ev.missing || []).length ? ` · 부족:${ev.missing.join(",")}` : "");
+    case "retry": return `재검색 #${ev.attempt} · 질의 보강`;
+    case "abstain": return "abstain — 근거 부족";
+    default: return ev.kind || "";
+  }
+}
 function handleChatEvent(ev, ui) {
   const ctx = ui.ctx;
+  if (ev.type === "substep") {
+    if (!ctx.steps) return;
+    const row = document.createElement("div");
+    row.className = "lsub";
+    row.innerHTML = `<span class="lsub-ic">↳</span><span class="lsub-text">${escapeHtml(subSummary(ev))}</span>`;
+    ui.stepsEl.appendChild(row);
+    chatScrollBottom(ctx);
+    return;
+  }
   if (ev.type === "step") {
     if (!ctx.steps) return;            // Agent Chat: 동작 스텝 숨김(AI 관측에서만)
     const detail = renderStepBody({ node: ev.node, out: ev.out });   // 우측 상세와 동일 렌더 재사용

@@ -6,6 +6,7 @@ PRISM·게이트는 경량 모델(gpt-4.1-mini)로 LLM 호출.
 """
 import json
 
+import trace_store
 from config import settings
 from llm import get_client
 from rag.index import search
@@ -67,15 +68,26 @@ def retrieve(query: str, intent: str | None = None, k: int = 5) -> dict:
     retries = 0
     while True:
         cands = search(q, k=k, intent=intent)
+        trace_store.emit(node="RAG Retriever", kind="search", attempt=retries + 1,
+                         query=q, candidates=len(cands))
         ranked = prism_rerank(query, cands)
+        trace_store.emit(node="RAG Retriever", kind="rerank", attempt=retries + 1,
+                         top=[{"source": c.get("source"), "relevance": round(c.get("relevance", 0), 2),
+                               "contribution": round(c.get("contribution", 0), 2)} for c in ranked[:3]])
         judge = sufficient_context(query, ranked)
+        trace_store.emit(node="RAG Retriever", kind="sufficiency", attempt=retries + 1,
+                         answerable=judge["answerable"], score=round(judge["context_sufficiency_score"], 2),
+                         missing=judge["missing_evidence_types"])
         if judge["answerable"] or retries >= MAX_RETRIES:
             break
         # query rewrite: 부족한 근거 유형을 질의에 보강
         missing = " ".join(judge["missing_evidence_types"])
         q = f"{query} {missing}".strip()
         retries += 1
+        trace_store.emit(node="RAG Retriever", kind="retry", attempt=retries + 1, query=q)
     abstain = not judge["answerable"]
+    if abstain:
+        trace_store.emit(node="RAG Retriever", kind="abstain")
     return {
         "answerable": judge["answerable"],
         "abstain": abstain,
