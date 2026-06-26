@@ -3,6 +3,7 @@
 실행(앱 디렉토리, venv 활성화):
     uvicorn api.main:app --reload
 """
+import asyncio
 import json
 from pathlib import Path
 
@@ -15,7 +16,7 @@ import chat_store
 import realtime
 import resmgmt
 import trace_store
-from agent.graph import run as agent_run
+from agent.graph import run as agent_run, stream_run
 from config import settings
 from sim import des, forecast, versions, whatif
 from tools import drafts, lookups, picking, stocking
@@ -222,6 +223,54 @@ def chat(r: ChatReq):
             "draft_actions": s.get("draft_actions", []),
             "rag_sources": sources,
             "tool_results": s.get("tool_results", {}), "error": s.get("error")}
+
+
+@app.post("/chat/stream")
+async def chat_stream(r: ChatReq):
+    """실시간 동작 스텝핑 — 노드가 끝날 때마다 step 이벤트를 SSE로 흘리고, 마지막에 done."""
+    session_id = r.session_id or chat_store.create_session(r.user_id)
+    history = chat_store.recent_history(session_id)
+    queue: asyncio.Queue = asyncio.Queue()
+    loop = asyncio.get_running_loop()
+
+    def worker():
+        final: dict = {}
+        try:
+            for node_id, snap in stream_run(r.query, r.user_id, history):
+                final = snap
+                st = trace_store.live_step(node_id, snap)
+                if st:
+                    loop.call_soon_threadsafe(queue.put_nowait, {"type": "step", **st})
+            loop.call_soon_threadsafe(queue.put_nowait, {"type": "final", "state": final})
+        except Exception as e:  # noqa: BLE001
+            loop.call_soon_threadsafe(queue.put_nowait, {"type": "error", "message": str(e)})
+        loop.call_soon_threadsafe(queue.put_nowait, None)
+
+    loop.run_in_executor(None, worker)
+
+    async def gen():
+        while True:
+            ev = await queue.get()
+            if ev is None:
+                break
+            if ev.get("type") == "final":
+                s = ev["state"]
+                resp, sources = s.get("final_response"), s.get("rag_context", [])
+                run_id = trace_store.save(s, session_id=session_id, query=r.query)
+                chat_store.add_message(session_id, "user", r.query)
+                if resp:
+                    chat_store.add_message(session_id, "assistant", resp,
+                                           intent=s.get("intent"), sources=sources)
+                done = {"type": "done", "session_id": session_id, "run_id": run_id,
+                        "intent": s.get("intent"), "approval_required": bool(s.get("approval_required")),
+                        "response": resp, "draft_actions": s.get("draft_actions", []),
+                        "rag_sources": sources, "tool_results": s.get("tool_results", {}),
+                        "error": s.get("error")}
+                yield "data: " + json.dumps(done, ensure_ascii=False, default=str) + "\n\n"
+            else:
+                yield "data: " + json.dumps(ev, ensure_ascii=False, default=str) + "\n\n"
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
 
 
 @app.get("/sessions")
@@ -453,9 +502,9 @@ async def realtime_emit():
 
 
 @app.get("/traces")
-def traces_list(limit: int = 40):
-    """에이전트 실행 트레이스 목록(최신순) — AI 동작 검증 화면."""
-    return {"traces": trace_store.list_traces(limit)}
+def traces_list(limit: int = 40, session_id: str | None = None):
+    """에이전트 실행 트레이스 목록(최신순) — AI 동작 검증 화면. session_id로 세션별 필터."""
+    return {"traces": trace_store.list_traces(limit, session_id)}
 
 
 @app.get("/traces/{run_id}")

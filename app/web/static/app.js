@@ -526,7 +526,7 @@ function activateTab(name) {
   document.querySelectorAll(".tab-panel").forEach((p) => p.classList.add("hidden"));
   const panel = $("#panel-" + name); if (panel) panel.classList.remove("hidden");
   if (name === "approval") loadApproval().catch(() => {});
-  if (name === "trace") loadTraces().catch(() => {});
+  if (name === "trace") { loadTraces().catch(() => {}); loadSessionInto(TRACE_CTX).catch(() => {}); }
 }
 function setupTabs() {
   document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => activateTab(t.dataset.tab)));
@@ -655,20 +655,16 @@ function renderSessions() {
 }
 async function openSession(sid) {
   if (!sid) return;
-  activateTab("chat");
   CHAT.sessionId = sid;
   const r = await fetch(`/sessions/${sid}`).then((x) => x.json()).catch(() => null);
   const msgs = (r && r.messages) || [];
-  chatThread().innerHTML = "";
-  const root = $("#chat-root"); if (root) root.classList.remove("is-empty");
-  msgs.forEach((m) => {
-    if (m.role === "user") appendBubble("user", escapeHtml(m.content));
-    else {
-      let sources = []; try { sources = JSON.parse(m.sources_json || "[]"); } catch (_) {}
-      appendBubble("bot", escapeHtml(m.content).replace(/\n/g, "<br>") + renderSources(sources));
-    }
-  });
-  if (!msgs.length) chatThread().innerHTML = CHAT_EMPTY_HTML;
+  renderMessages(CHAT_CTX, msgs);     // Agent Chat 표면
+  renderMessages(TRACE_CTX, msgs);    // AI 관측 표면
+  TRACE.runId = null;
+  loadTraces(sid).catch(() => {});    // 이 세션의 실행 이력만
+  const active = document.querySelector(".tab.active");
+  const at = active && active.dataset.tab;
+  if (at !== "chat" && at !== "trace") activateTab("chat");  // 다른 탭이면 채팅으로
   renderSessions();
 }
 
@@ -678,18 +674,46 @@ const CHAT_EMPTY_HTML = `<div class="chat-empty" id="chat-empty">
   <div class="ce-title">무엇을 도와드릴까요?</div>
   <div class="ce-sub">오늘 할 일, 적치·피킹 추천, 재고 소진 예측, 시뮬레이션을 자연어로 물어보세요.</div>
 </div>`;
+const TRACE_EMPTY_HTML = `<div class="chat-empty"><div class="ce-title">AI 동작 관측</div>
+  <div class="ce-sub">질문하면 노드 동작이 단계별로 보입니다. 좌측에서 세션을 선택하세요.</div></div>`;
+// 두 채팅 표면: Agent Chat(스텝 숨김) / AI 관측(스텝 표시)
+const CHAT_CTX = { inner: "thread-inner", scroll: "chat-scroll", root: "chat-root", text: "chat-text", send: "chat-send", steps: false, emptyHtml: CHAT_EMPTY_HTML };
+const TRACE_CTX = { inner: "trace-thread-inner", scroll: "trace-scroll", root: "trace-chat-root", text: "trace-text", send: "trace-send", steps: true, emptyHtml: TRACE_EMPTY_HTML };
+
+function renderMessages(ctx, msgs) {
+  const innerEl = document.getElementById(ctx.inner); if (!innerEl) return;
+  const root = document.getElementById(ctx.root);
+  innerEl.innerHTML = "";
+  if (!msgs || !msgs.length) { if (root) root.classList.add("is-empty"); innerEl.innerHTML = ctx.emptyHtml; return; }
+  if (root) root.classList.remove("is-empty");
+  msgs.forEach((m) => {
+    if (m.role === "user") appendBubble("user", escapeHtml(m.content), ctx);
+    else {
+      let src = []; try { src = JSON.parse(m.sources_json || "[]"); } catch (_) {}
+      appendBubble("bot", escapeHtml(m.content).replace(/\n/g, "<br>") + renderSources(src), ctx);
+    }
+  });
+}
+async function loadSessionInto(ctx) {
+  if (!CHAT.sessionId) { renderMessages(ctx, []); return; }
+  const r = await fetch(`/sessions/${CHAT.sessionId}`).then((x) => x.json()).catch(() => null);
+  renderMessages(ctx, (r && r.messages) || []);
+}
 const escapeHtml = (s) => (s == null ? "" : String(s)).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-const chatScrollBottom = () => { const el = $("#chat-scroll"); el.scrollTop = el.scrollHeight; };
+const chatScrollBottom = (ctx) => { const sc = document.getElementById((ctx || CHAT_CTX).scroll); if (sc) sc.scrollTop = sc.scrollHeight; };
 const chatThread = () => $("#thread-inner") || $("#chat-scroll");
 
-function appendBubble(role, inner) {
-  const empty = $("#chat-empty"); if (empty) empty.remove();
-  const root = $("#chat-root"); if (root) root.classList.remove("is-empty");
+function appendBubble(role, inner, ctx) {
+  ctx = ctx || CHAT_CTX;
+  const innerEl = document.getElementById(ctx.inner);
+  const empty = innerEl.querySelector(".chat-empty"); if (empty) empty.remove();
+  const root = document.getElementById(ctx.root); if (root) root.classList.remove("is-empty");
   const wrap = document.createElement("div");
   wrap.className = "msg " + role;
   const who = role === "user" ? "user" : "ai";
   wrap.innerHTML = `<div class="role-tag">${who} :</div><div class="bubble">${inner}</div>`;
-  chatThread().appendChild(wrap); chatScrollBottom();
+  innerEl.appendChild(wrap);
+  chatScrollBottom(ctx);
   return wrap;
 }
 function renderSources(sources) {
@@ -783,11 +807,19 @@ async function loadApproval() {
 // ---------- AI 관측(trace) 탭 ----------
 let TRACE = { runId: null, items: [] };
 
-async function loadTraces() {
-  try { TRACE.items = (await fetch("/traces?limit=40").then((x) => x.json())).traces || []; }
+async function loadTraces(sessionId) {
+  const sid = sessionId !== undefined ? sessionId : CHAT.sessionId;
+  const url = sid ? `/traces?limit=40&session_id=${encodeURIComponent(sid)}` : "/traces?limit=40";
+  try { TRACE.items = (await fetch(url).then((x) => x.json())).traces || []; }
   catch (_) { TRACE.items = []; }
+  const badge = $("#trace-sess"); if (badge) badge.textContent = sid ? "· " + sid : "· 세션 미선택";
   renderTraceList();
-  if (TRACE.items.length && !TRACE.runId) openTrace(TRACE.items[0].run_id);
+  if (TRACE.items.length) {
+    if (!TRACE.runId || !TRACE.items.some((t) => t.run_id === TRACE.runId)) openTrace(TRACE.items[0].run_id);
+  } else {
+    TRACE.runId = null;
+    const d = $("#trace-detail"); if (d) d.innerHTML = `<div class="kpi-empty">이 세션의 실행 이력이 없습니다. 아래에서 질문해 보세요.</div>`;
+  }
 }
 function renderTraceList() {
   const el = $("#trace-list"); if (!el) return;
@@ -843,33 +875,87 @@ async function openTrace(runId) {
     <div class="flow">${flow}</div>`;
 }
 
-async function sendChat(text) {
-  text = (text || "").trim(); if (!text) return;
-  appendBubble("user", escapeHtml(text));
-  const ta = $("#chat-text"); ta.value = ""; autoGrow(ta);
-  const send = $("#chat-send"); send.disabled = true;
-  const typing = appendBubble("bot", `<span class="typing"><i></i><i></i><i></i></span>`);
-  try {
-    const r = await fetch("/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: text, user_id: "operator01", session_id: CHAT.sessionId }) }).then((x) => x.json());
-    typing.remove();
-    if (r.session_id) CHAT.sessionId = r.session_id;
-    if (r.error) {
-      appendBubble("bot", `<span class="err">오류: ${escapeHtml(r.error)}</span>`);
-    } else {
-      const body = escapeHtml(r.response || "(응답이 비어 있습니다)").replace(/\n/g, "<br>")
-        + renderSources(r.rag_sources)
-        + (r.approval_required ? renderApproval(r.draft_actions, r.tool_results) : "");
-      const node = appendBubble("bot", body);
-      if (r.approval_required) wireApproval(node, r.tool_results);
-    }
-  } catch (e) {
-    typing.remove();
-    appendBubble("bot", `<span class="err">요청 실패: ${escapeHtml(String(e))}</span>`);
-  } finally {
-    send.disabled = false; $("#chat-text").focus(); setUpdated();
-    loadSessions().catch(() => {});   // 사이드바 이력 갱신(새 세션·제목·시각)
+function liveSummary(node, o) {
+  o = o || {};
+  switch (node) {
+    case "Router": return `${safeText(o.intent || "-")}${o.confidence != null ? " · " + Number(o.confidence).toFixed(2) : ""}`;
+    case "Param Extractor": return (o.missing_parameters || []).length ? "누락: " + o.missing_parameters.join(", ") : "필수값 충족";
+    case "Planner": return (o.plan || []).join(", ") || "—";
+    case "Tool Executor": return (o.tools || []).length ? o.tools.join(", ") : (o.error ? "오류" : "도구 없음");
+    case "Verifier": return "정합성 확인";
+    case "RAG Decision": return o.rag_required ? "검색 수행" : "검색 불필요";
+    case "RAG Retriever": return `충분성 ${o.sufficiency_score != null ? Number(o.sufficiency_score).toFixed(2) : "—"} · 재검색 ${o.retries ?? 0}${o.abstain ? " · abstain" : ""}`;
+    case "Response Generator": return "응답 생성";
+    case "Approval Gate": return o.approval_required ? "승인 필요" : "승인 불필요";
+    default: return "";
   }
 }
+function handleChatEvent(ev, ui) {
+  const ctx = ui.ctx;
+  if (ev.type === "step") {
+    if (!ctx.steps) return;            // Agent Chat: 동작 스텝 숨김(AI 관측에서만)
+    const row = document.createElement("div");
+    row.className = "lstep done";
+    row.innerHTML = `<span class="ls-ic">✓</span><span class="ls-label">${escapeHtml(ev.label || ev.node)}</span>`
+      + `<span class="ls-sum">${escapeHtml(liveSummary(ev.node, ev.out))}</span>`;
+    ui.stepsEl.appendChild(row);
+    chatScrollBottom(ctx);
+  } else if (ev.type === "done") {
+    if (ui.runEl) ui.runEl.remove();
+    if (ev.session_id) CHAT.sessionId = ev.session_id;
+    if (ev.error) { ui.finalEl.innerHTML = `<span class="err">오류: ${escapeHtml(ev.error)}</span>`; return; }
+    ui.finalEl.innerHTML = escapeHtml(ev.response || "(응답이 비어 있습니다)").replace(/\n/g, "<br>")
+      + renderSources(ev.rag_sources)
+      + (ev.approval_required ? renderApproval(ev.draft_actions, ev.tool_results) : "");
+    if (ev.approval_required) wireApproval(ui.node, ev.tool_results);
+    if (ctx.steps) { TRACE.runId = null; loadTraces(CHAT.sessionId).catch(() => {}); }  // 새 run 목록·상세 갱신
+    chatScrollBottom(ctx);
+  } else if (ev.type === "error") {
+    if (ui.runEl) ui.runEl.remove();
+    ui.finalEl.innerHTML = `<span class="err">오류: ${escapeHtml(ev.message || "")}</span>`;
+  }
+}
+async function streamChat(text, ctx) {
+  ctx = ctx || CHAT_CTX;
+  text = (text || "").trim(); if (!text) return;
+  appendBubble("user", escapeHtml(text), ctx);
+  const ta = document.getElementById(ctx.text); if (ta) { ta.value = ""; autoGrow(ta); }
+  const send = document.getElementById(ctx.send); if (send) send.disabled = true;
+  const node = appendBubble("bot",
+    `<div class="live-steps"></div>`
+    + `<div class="live-run"><span class="typing"><i></i><i></i><i></i></span> 처리 중…</div>`
+    + `<div class="live-final"></div>`, ctx);
+  const ui = { node, ctx, stepsEl: node.querySelector(".live-steps"),
+               runEl: node.querySelector(".live-run"), finalEl: node.querySelector(".live-final") };
+  try {
+    const resp = await fetch("/chat/stream", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: text, user_id: "operator01", session_id: CHAT.sessionId }) });
+    if (!resp.ok || !resp.body) throw new Error("스트림 연결 실패 " + resp.status);
+    const reader = resp.body.getReader(), dec = new TextDecoder();
+    let buf = "";
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf("\n\n")) >= 0) {
+        const dl = buf.slice(0, i).split("\n").find((l) => l.startsWith("data:"));
+        buf = buf.slice(i + 2);
+        if (!dl) continue;
+        let ev; try { ev = JSON.parse(dl.slice(5).trim()); } catch (_) { continue; }
+        handleChatEvent(ev, ui);
+      }
+    }
+  } catch (e) {
+    if (ui.runEl) ui.runEl.remove();
+    ui.finalEl.innerHTML = `<span class="err">요청 실패: ${escapeHtml(String(e))}</span>`;
+  } finally {
+    if (send) send.disabled = false;
+    const ta2 = document.getElementById(ctx.text); if (ta2) ta2.focus();
+    setUpdated(); loadSessions().catch(() => {});
+  }
+}
+function sendChat(text) { return streamChat(text, CHAT_CTX); }
 function autoGrow(ta) { ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight, 140) + "px"; }
 function bindSuggests() {
   const sug = $("#chat-suggest"); if (!sug) return;
@@ -878,19 +964,30 @@ function bindSuggests() {
 }
 function resetChat() {
   CHAT.sessionId = null;                 // 새 대화 = 새 세션
-  const root = $("#chat-root"); if (root) root.classList.add("is-empty");
-  chatThread().innerHTML = CHAT_EMPTY_HTML;
+  renderMessages(CHAT_CTX, []);          // 두 표면 모두 초기화
+  renderMessages(TRACE_CTX, []);
+  TRACE.runId = null; TRACE.items = []; renderTraceList();
+  const td = $("#trace-detail"); if (td) td.innerHTML = `<div class="kpi-empty">새 대화입니다. 질문하면 동작이 그려집니다.</div>`;
   bindSuggests();
   const ta = $("#chat-text");
   if (ta) { ta.value = ""; autoGrow(ta); ta.focus(); }
   renderSessions();
 }
 function setupChat() {
-  const ta = $("#chat-text"), send = $("#chat-send"); if (!ta) return;
-  send.addEventListener("click", () => sendChat(ta.value));
-  ta.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendChat(ta.value); } });
-  ta.addEventListener("input", () => autoGrow(ta));
+  const ta = $("#chat-text"), send = $("#chat-send");
+  if (ta && send) {
+    send.addEventListener("click", () => sendChat(ta.value));
+    ta.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendChat(ta.value); } });
+    ta.addEventListener("input", () => autoGrow(ta));
+  }
   const plus = $("#cp-plus"); if (plus) plus.addEventListener("click", resetChat);
+  // AI 관측 탭 입력창
+  const tta = $("#trace-text"), tsend = $("#trace-send");
+  if (tta && tsend) {
+    tsend.addEventListener("click", () => streamChat(tta.value, TRACE_CTX));
+    tta.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); streamChat(tta.value, TRACE_CTX); } });
+    tta.addEventListener("input", () => autoGrow(tta));
+  }
   bindSuggests();
 }
 

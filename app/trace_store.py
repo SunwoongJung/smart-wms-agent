@@ -85,11 +85,13 @@ def save(state: dict, session_id: str | None = None, query: str | None = None) -
     return run_id
 
 
-def list_traces(limit: int = 40) -> list[dict]:
+def list_traces(limit: int = 40, session_id: str | None = None) -> list[dict]:
     ensure_trace_table()
-    return q("""SELECT run_id, query, intent, confidence, rag_required, answerable, retries,
-                abstain, approval_required, created_at FROM agent_traces
-                ORDER BY created_at DESC, rowid DESC LIMIT ?""", (limit,))
+    where = "WHERE session_id=? " if session_id else ""
+    params = (session_id, limit) if session_id else (limit,)
+    return q(f"""SELECT run_id, query, intent, confidence, rag_required, answerable, retries,
+                abstain, approval_required, created_at FROM agent_traces {where}
+                ORDER BY created_at DESC, rowid DESC LIMIT ?""", params)
 
 
 def get_trace(run_id: str) -> dict | None:
@@ -100,3 +102,42 @@ def get_trace(run_id: str) -> dict | None:
     t = rows[0]
     t["steps"] = json.loads(t.pop("steps_json") or "[]")
     return t
+
+
+# 그래프 노드 ID → (표시이름, 라벨, out 추출기) — build_steps와 동일 포맷(프론트 renderStepBody 재사용)
+GRAPH_NODE_STEP = {
+    "router": ("Router", "의도 분류(LLM)",
+               lambda s: {"intent": s.get("intent"), "confidence": s.get("intent_confidence"),
+                          "parameters": s.get("parameters", {})}),
+    "param_extractor": ("Param Extractor", "필수 파라미터 검증",
+                        lambda s: {"missing_parameters": s.get("missing_parameters") or []}),
+    "planner": ("Planner", "실행 계획", lambda s: {"plan": s.get("plan", [])}),
+    "tool_executor": ("Tool Executor", "도구 실행",
+                      lambda s: {"tools": [k for k in (s.get("tool_results") or {}) if not k.startswith("_")],
+                                 "error": s.get("error")}),
+    "verifier": ("Verifier", "결과 검증",
+                 lambda s: {"verification_results": s.get("verification_results", {})}),
+    "rag_decision": ("RAG Decision", "문서검색 필요 판단",
+                     lambda s: {"rag_required": bool(s.get("rag_required"))}),
+    "rag_retriever": ("RAG Retriever", "검색·PRISM 리랭크·충분성 게이트",
+                      lambda s: {"evidence": s.get("rag_context", []),
+                                 "answerable": s.get("rag_context_sufficient"),
+                                 "sufficiency_score": (s.get("_rag_sufficiency") or {}).get("context_sufficiency_score"),
+                                 "missing_evidence_types": (s.get("_rag_sufficiency") or {}).get("missing_evidence_types", []),
+                                 "retries": s.get("rag_retry_count"),
+                                 "abstain": bool(s.get("_rag_abstain"))}),
+    "response_generator": ("Response Generator", "응답 생성(LLM)",
+                           lambda s: {"final_response": s.get("final_response")}),
+    "approval_gate": ("Approval Gate", "승인 게이트(HITL)",
+                      lambda s: {"approval_required": bool(s.get("approval_required")),
+                                 "draft_actions": s.get("draft_actions", [])}),
+}
+
+
+def live_step(node_id: str, state: dict) -> dict | None:
+    """실행 중 노드 1개가 끝난 시점의 스텝 dict(표시이름·라벨·out)."""
+    m = GRAPH_NODE_STEP.get(node_id)
+    if not m:
+        return None
+    name, label, fn = m
+    return {"node": name, "label": label, "out": fn(state)}

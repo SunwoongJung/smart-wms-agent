@@ -195,17 +195,31 @@
         </div>
       </section>
       <section class="tab-panel hidden" id="panel-trace">
-        <div class="kpi-board">
-          <div class="kpi-board-head">
-            <div>
-              <div class="kpi-board-title">AI 동작 관측</div>
-              <div class="kpi-board-sub">Agent Chat 실행별 LangGraph 노드 흐름과 RAG 검색·충분성 과정을 추적합니다.</div>
-            </div>
-            <button class="btn-ghost" id="refresh-trace">새로고침</button>
+        <div class="kpi-board-head">
+          <div>
+            <div class="kpi-board-title">AI 동작 관측 <span class="trace-sess" id="trace-sess"></span></div>
+            <div class="kpi-board-sub">이 세션에서 질문하면 LangGraph 노드 동작이 단계별로 그려집니다. 좌측 사이드바에서 세션을 선택하세요.</div>
           </div>
-          <div class="trace-board">
+          <button class="btn-ghost" id="refresh-trace">새로고침</button>
+        </div>
+        <div class="trace-layout">
+          <div class="trace-chat chat is-empty" id="trace-chat-root">
+            <div class="chat-thread" id="trace-scroll">
+              <div class="thread-inner" id="trace-thread-inner">
+                <div class="chat-empty"><div class="ce-title">AI 동작 관측</div>
+                  <div class="ce-sub">질문하면 노드 동작이 단계별로 보입니다.</div></div>
+              </div>
+            </div>
+            <div class="composer-wrap">
+              <div class="composer">
+                <textarea id="trace-text" rows="1" placeholder="이 세션에서 질문…"></textarea>
+                <button class="cp-send" id="trace-send" title="전송" aria-label="전송">↑</button>
+              </div>
+            </div>
+          </div>
+          <div class="trace-side">
             <div class="trace-list" id="trace-list">불러오는 중...</div>
-            <div class="trace-detail card" id="trace-detail">왼쪽에서 실행을 선택하세요.</div>
+            <div class="trace-detail card" id="trace-detail">실행을 선택하면 노드 흐름 상세가 보입니다.</div>
           </div>
         </div>
       </section>

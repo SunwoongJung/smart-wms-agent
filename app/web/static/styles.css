@@ -29,6 +29,29 @@ body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--f
 .chat-item { padding: 10px 12px; border-radius: 10px; cursor: pointer; border: 1px solid transparent; }
 .chat-item:hover { background: #f3f6fb; }
 .chat-item.active { background: #eaf0ff; border-color: #c9d8ff; }
+
+/* 채팅 라이브 동작 스텝퍼 */
+.live-steps { display: flex; flex-direction: column; gap: 2px; margin-bottom: 4px; }
+.lstep { display: flex; align-items: baseline; gap: 7px; font-size: 11.5px; line-height: 1.5;
+  padding: 2px 0; animation: lstep-in .22s ease both; }
+.lstep .ls-ic { color: var(--green); font-weight: 700; }
+.lstep .ls-label { font-weight: 700; color: var(--ink); white-space: nowrap; }
+.lstep .ls-sum { color: var(--ink-sub); overflow: hidden; text-overflow: ellipsis; }
+@keyframes lstep-in { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
+.live-run { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--ink-sub); padding: 3px 0; }
+.live-final { margin-top: 4px; }
+.live-final:empty { display: none; }
+.live-steps:empty { display: none; }   /* Agent Chat: 스텝 없으면 숨김 */
+
+/* AI 관측 탭 — 좌 채팅(스텝) / 우 트레이스 */
+.trace-layout { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 14px;
+  height: calc(100vh - 200px); min-height: 460px; margin-top: 8px; }
+.trace-chat { height: 100%; min-height: 0; }
+.trace-side { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+.trace-side .trace-list { flex: 0 0 auto; max-height: 42%; overflow-y: auto;
+  border: 1px solid var(--line); border-radius: 12px; background: #fff; padding: 6px; }
+.trace-side .trace-detail { flex: 1 1 auto; overflow-y: auto; padding: 14px; }
+.trace-sess { font-size: 12px; color: var(--ink-sub); font-weight: 500; }
 .ci-empty { color: var(--ink-sub); font-size: 12.5px; padding: 12px 8px; text-align: center; }
 .chat-item .ci-title { font-size: 13.5px; font-weight: 600; }
 .chat-item .ci-meta { font-size: 11px; color: var(--ink-sub); margin-top: 2px; }

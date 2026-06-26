@@ -54,6 +54,24 @@ def run(query: str, user_id: str | None = None, history: list[dict] | None = Non
     return _GRAPH.invoke({"user_query": query, "user_id": user_id, "history": history or []})
 
 
+def stream_run(query: str, user_id: str | None = None, history: list[dict] | None = None):
+    """노드 단위로 (node_id, 누적 state 스냅샷)을 yield(실시간 동작 스텝핑용).
+
+    stream_mode='updates' → 각 노드 실행 직후 그 노드의 state 델타를 받아 누적한다.
+    호출자는 마지막 스냅샷을 최종 state로 사용한다(invoke와 동일 결과).
+    """
+    global _GRAPH
+    if _GRAPH is None:
+        _GRAPH = build_graph()
+    state: dict = {}
+    inp = {"user_query": query, "user_id": user_id, "history": history or []}
+    for update in _GRAPH.stream(inp, stream_mode="updates"):
+        for node_id, delta in (update or {}).items():
+            if isinstance(delta, dict):
+                state.update(delta)
+            yield node_id, dict(state)
+
+
 if __name__ == "__main__":
     import sys
     r = run(sys.argv[1] if len(sys.argv) > 1 else "오늘 뭐 해야 돼?")
