@@ -894,10 +894,15 @@ function handleChatEvent(ev, ui) {
   const ctx = ui.ctx;
   if (ev.type === "step") {
     if (!ctx.steps) return;            // Agent Chat: 동작 스텝 숨김(AI 관측에서만)
+    const detail = renderStepBody({ node: ev.node, out: ev.out });   // 우측 상세와 동일 렌더 재사용
     const row = document.createElement("div");
-    row.className = "lstep done";
-    row.innerHTML = `<span class="ls-ic">✓</span><span class="ls-label">${escapeHtml(ev.label || ev.node)}</span>`
-      + `<span class="ls-sum">${escapeHtml(liveSummary(ev.node, ev.out))}</span>`;
+    row.className = "lstep done" + (detail ? " has-detail" : "");
+    row.innerHTML = `<div class="lstep-head"><span class="ls-ic">✓</span>`
+      + `<span class="ls-label">${escapeHtml(ev.label || ev.node)}</span>`
+      + `<span class="ls-sum">${escapeHtml(liveSummary(ev.node, ev.out))}</span>`
+      + (detail ? `<span class="ls-caret">▸</span>` : "") + `</div>`
+      + (detail ? `<div class="lstep-detail">${detail}</div>` : "");
+    if (detail) row.querySelector(".lstep-head").addEventListener("click", () => row.classList.toggle("open"));
     ui.stepsEl.appendChild(row);
     chatScrollBottom(ctx);
   } else if (ev.type === "done") {
