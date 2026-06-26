@@ -48,6 +48,10 @@ body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--f
   animation: lstep-in .2s ease both; }
 .lsub-ic { color: #9aa3b0; }
 .lsub-text { font-variant-numeric: tabular-nums; }
+.tok-total { margin-top: 5px; font-size: 11px; color: var(--ink-sub); font-variant-numeric: tabular-nums;
+  border-top: 1px dashed var(--line); padding-top: 5px; }
+.tr-tok { font-size: 10.5px; color: #4a5568; background: #eef1f6; border-radius: 5px; padding: 1px 6px;
+  font-variant-numeric: tabular-nums; }
 @keyframes lstep-in { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
 .live-run { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--ink-sub); padding: 3px 0; }
 .live-final { margin-top: 4px; }

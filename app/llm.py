@@ -28,8 +28,27 @@ def embed(texts: list[str]) -> list[list[float]]:
     return [d.embedding for d in resp.data]
 
 
-def chat(messages: list[dict], model: str | None = None, **kwargs) -> str:
-    """간단 채팅 호출 → 응답 텍스트."""
+def complete(messages: list[dict], model: str | None = None, node: str | None = None, **kwargs):
+    """채팅 completion 단일 진입점 — 응답 객체 반환 + 토큰 usage를 트레이스에 기록.
+
+    모든 LLM 호출이 이 래퍼를 거치게 해 토큰 계측을 한 곳에서 한다(게이트웨이가 usage를
+    안 주면 조용히 건너뜀).
+    """
     resp = get_client().chat.completions.create(
         model=model or settings.openai_chat_model, messages=messages, **kwargs)
-    return resp.choices[0].message.content
+    try:
+        import trace_store
+        u = getattr(resp, "usage", None)
+        if u is not None:
+            trace_store.record_tokens(node,
+                                      int(getattr(u, "prompt_tokens", 0) or 0),
+                                      int(getattr(u, "completion_tokens", 0) or 0),
+                                      int(getattr(u, "total_tokens", 0) or 0))
+    except Exception:
+        pass
+    return resp
+
+
+def chat(messages: list[dict], model: str | None = None, **kwargs) -> str:
+    """간단 채팅 호출 → 응답 텍스트."""
+    return complete(messages, model=model, **kwargs).choices[0].message.content

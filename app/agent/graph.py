@@ -3,6 +3,7 @@
 START → router → param_extractor →(필수값 누락? clarification→END)→ planner → tool_executor
       → verifier → rag_decision →(RAG 필요? retriever)→ response_generator → approval_gate → END
 """
+import trace_store
 from langgraph.graph import END, START, StateGraph
 
 from agent import nodes
@@ -51,6 +52,7 @@ def run(query: str, user_id: str | None = None, history: list[dict] | None = Non
     global _GRAPH
     if _GRAPH is None:
         _GRAPH = build_graph()
+    trace_store.reset_tokens()
     return _GRAPH.invoke({"user_query": query, "user_id": user_id, "history": history or []})
 
 
@@ -63,6 +65,7 @@ def stream_run(query: str, user_id: str | None = None, history: list[dict] | Non
     global _GRAPH
     if _GRAPH is None:
         _GRAPH = build_graph()
+    trace_store.reset_tokens()
     state: dict = {}
     inp = {"user_query": query, "user_id": user_id, "history": history or []}
     for update in _GRAPH.stream(inp, stream_mode="updates"):

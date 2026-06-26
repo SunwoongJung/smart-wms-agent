@@ -210,9 +210,10 @@ def chat(r: ChatReq):
     session_id = r.session_id or chat_store.create_session(r.user_id)
     history = chat_store.recent_history(session_id)
     s = agent_run(r.query, r.user_id, history=history)
+    tokens = trace_store.get_tokens()
     resp = s.get("final_response")
     sources = s.get("rag_context", [])
-    run_id = trace_store.save(s, session_id=session_id, query=r.query)  # 동작 검증용 트레이스
+    run_id = trace_store.save(s, session_id=session_id, query=r.query, tokens=tokens)  # 동작 검증용 트레이스
     chat_store.add_message(session_id, "user", r.query)
     if resp:
         chat_store.add_message(session_id, "assistant", resp, intent=s.get("intent"), sources=sources)
@@ -221,7 +222,7 @@ def chat(r: ChatReq):
             "approval_required": s.get("approval_required", False),
             "response": resp,
             "draft_actions": s.get("draft_actions", []),
-            "rag_sources": sources,
+            "rag_sources": sources, "tokens": tokens,
             "tool_results": s.get("tool_results", {}), "error": s.get("error")}
 
 
@@ -243,7 +244,8 @@ async def chat_stream(r: ChatReq):
                 st = trace_store.live_step(node_id, snap)
                 if st:
                     loop.call_soon_threadsafe(queue.put_nowait, {"type": "step", **st})
-            loop.call_soon_threadsafe(queue.put_nowait, {"type": "final", "state": final})
+            loop.call_soon_threadsafe(queue.put_nowait,
+                                      {"type": "final", "state": final, "tokens": trace_store.get_tokens()})
         except Exception as e:  # noqa: BLE001
             loop.call_soon_threadsafe(queue.put_nowait, {"type": "error", "message": str(e)})
         finally:
@@ -259,8 +261,9 @@ async def chat_stream(r: ChatReq):
                 break
             if ev.get("type") == "final":
                 s = ev["state"]
+                tokens = ev.get("tokens")
                 resp, sources = s.get("final_response"), s.get("rag_context", [])
-                run_id = trace_store.save(s, session_id=session_id, query=r.query)
+                run_id = trace_store.save(s, session_id=session_id, query=r.query, tokens=tokens)
                 chat_store.add_message(session_id, "user", r.query)
                 if resp:
                     chat_store.add_message(session_id, "assistant", resp,
@@ -269,7 +272,7 @@ async def chat_stream(r: ChatReq):
                         "intent": s.get("intent"), "approval_required": bool(s.get("approval_required")),
                         "response": resp, "draft_actions": s.get("draft_actions", []),
                         "rag_sources": sources, "tool_results": s.get("tool_results", {}),
-                        "error": s.get("error")}
+                        "tokens": tokens, "error": s.get("error")}
                 yield "data: " + json.dumps(done, ensure_ascii=False, default=str) + "\n\n"
             else:
                 yield "data: " + json.dumps(ev, ensure_ascii=False, default=str) + "\n\n"

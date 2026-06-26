@@ -7,7 +7,7 @@ Verifier(규칙) → RAG Decision/Retriever/Sufficient → ResponseGenerator(LLM
 import json
 
 from config import settings
-from llm import get_client
+from llm import complete
 from rag import retriever
 from sim import des, forecast, whatif
 from tools import allocation, dead_stock, drafts, lookups, picking, replenishment, stocking
@@ -15,10 +15,9 @@ from tools import allocation, dead_stock, drafts, lookups, picking, replenishmen
 from agent.state import (RAG_INTENTS, REQUIRED_PARAMS, STATE_CHANGE_INTENTS)
 
 
-def _json_chat(system: str, user: str, model: str) -> dict:
-    resp = get_client().chat.completions.create(
-        model=model, messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
-        response_format={"type": "json_object"})
+def _json_chat(system: str, user: str, model: str, node: str | None = None) -> dict:
+    resp = complete([{"role": "system", "content": system}, {"role": "user", "content": user}],
+                    model=model, node=node, response_format={"type": "json_object"})
     try:
         return json.loads(resp.choices[0].message.content)
     except Exception:
@@ -76,7 +75,7 @@ def router_node(state: dict) -> dict:
         lines = "\n".join(f"{'사용자' if h['role'] == 'user' else '조수'}: {str(h['content'])[:200]}"
                           for h in hist[-6:])
         prefix = f"[이전 대화]\n{lines}\n\n[현재 질문]\n"
-    j = _json_chat(system, prefix + state["user_query"], settings.openai_router_model)
+    j = _json_chat(system, prefix + state["user_query"], settings.openai_router_model, node="Router")
     return {"intent": j.get("intent"), "intent_confidence": j.get("confidence"),
             "parameters": j.get("parameters", {}) or {}}
 
@@ -275,10 +274,9 @@ def response_generator_node(state: dict) -> dict:
                "recent_dialogue": (state.get("history") or [])[-8:]}
         user = ("아래 이전 대화(recent_dialogue)를 참고해 현재 질문(user_query)에 자연스럽게 답하세요. "
                 "JSON 아님, 자연어.\n" + json.dumps(ctx, ensure_ascii=False, default=str)[:4000])
-        resp = get_client().chat.completions.create(
-            model=settings.openai_chat_model,
-            messages=[{"role": "system", "content": _CONVERSATION_PERSONA},
-                      {"role": "user", "content": user}])
+        resp = complete([{"role": "system", "content": _CONVERSATION_PERSONA},
+                         {"role": "user", "content": user}],
+                        model=settings.openai_chat_model, node="Response Generator")
         return {"final_response": resp.choices[0].message.content}
     tr = state.get("tool_results", {}) or {}
     context = {"intent": state.get("intent"), "tool_results": tr,
@@ -293,9 +291,8 @@ def response_generator_node(state: dict) -> dict:
                       "그 외 영역(피킹·출고·재고위험 등)은 언급하지 마세요.\n")
     user = (scope_note + "아래 Tool 결과와 RAG 근거를 바탕으로 운영자에게 답하세요. JSON 아님, 자연어.\n"
             + json.dumps(context, ensure_ascii=False, default=str)[:6000])
-    resp = get_client().chat.completions.create(
-        model=settings.openai_chat_model,
-        messages=[{"role": "system", "content": _PERSONA}, {"role": "user", "content": user}])
+    resp = complete([{"role": "system", "content": _PERSONA}, {"role": "user", "content": user}],
+                    model=settings.openai_chat_model, node="Response Generator")
     return {"final_response": resp.choices[0].message.content}
 
 

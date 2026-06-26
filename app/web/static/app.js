@@ -832,6 +832,7 @@ function renderTraceList() {
     return `<div class="tr-item${t.run_id === TRACE.runId ? " active" : ""}" data-run="${safeText(t.run_id)}">
       <div class="tr-q">${safeText((t.query || "").slice(0, 60))}</div>
       <div class="tr-meta"><span class="tr-intent">${safeText(t.intent || "-")}</span>${flags}
+        ${t.total_tokens != null ? `<span class="tr-tok">${t.total_tokens}tok</span>` : ""}
         <span class="tr-time">${safeText(when)}</span></div></div>`;
   }).join("");
   el.querySelectorAll(".tr-item").forEach((n) => n.addEventListener("click", () => openTrace(n.dataset.run)));
@@ -871,7 +872,7 @@ async function openTrace(runId) {
     `<div class="fstep"><div><span class="fs-node">${safeText(s.node)}</span><span class="fs-label">${safeText(s.label || "")}</span></div>
       <div class="fs-body">${renderStepBody(s)}</div></div>`).join("");
   el.innerHTML = `<div class="td-q">${safeText(t.query || "")}</div>
-    <div class="td-sub">run ${safeText(t.run_id)} · ${safeText((t.created_at || "").replace("T", " ").slice(0, 16))}</div>
+    <div class="td-sub">run ${safeText(t.run_id)} · ${safeText((t.created_at || "").replace("T", " ").slice(0, 16))}${t.total_tokens != null ? ` · ${t.total_tokens} 토큰 (${t.llm_calls || 0}콜)` : ""}</div>
     <div class="flow">${flow}</div>`;
 }
 
@@ -903,7 +904,7 @@ function subSummary(ev) {
 function handleChatEvent(ev, ui) {
   const ctx = ui.ctx;
   if (ev.type === "substep") {
-    if (!ctx.steps) return;
+    if (!ctx.steps || ev.kind === "tokens") return;   // 토큰은 라이브 미표시(총합은 done에서)
     const row = document.createElement("div");
     row.className = "lsub";
     row.innerHTML = `<span class="lsub-ic">↳</span><span class="lsub-text">${escapeHtml(subSummary(ev))}</span>`;
@@ -932,6 +933,12 @@ function handleChatEvent(ev, ui) {
       + renderSources(ev.rag_sources)
       + (ev.approval_required ? renderApproval(ev.draft_actions, ev.tool_results) : "");
     if (ev.approval_required) wireApproval(ui.node, ev.tool_results);
+    if (ctx.steps && ev.tokens) {
+      const t = ev.tokens, row = document.createElement("div");
+      row.className = "tok-total";
+      row.textContent = `Σ 토큰 ${t.total || 0} · ${t.calls || 0}콜 (P${t.prompt || 0}/C${t.completion || 0})`;
+      ui.stepsEl.appendChild(row);
+    }
     if (ctx.steps) { TRACE.runId = null; loadTraces(CHAT.sessionId).catch(() => {}); }  // 새 run 목록·상세 갱신
     chatScrollBottom(ctx);
   } else if (ev.type === "error") {

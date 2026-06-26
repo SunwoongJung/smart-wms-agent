@@ -33,6 +33,26 @@ def emit(**event) -> None:
             pass
 
 
+# 토큰 누산기 — run 시작 시 reset, LLM 호출마다 record(같은 스레드).
+_tok_local = threading.local()
+
+
+def reset_tokens() -> None:
+    _tok_local.tokens = {"prompt": 0, "completion": 0, "total": 0, "calls": 0}
+
+
+def record_tokens(node, prompt: int, completion: int, total: int) -> None:
+    t = getattr(_tok_local, "tokens", None)
+    if t is None:
+        reset_tokens(); t = _tok_local.tokens
+    t["prompt"] += prompt; t["completion"] += completion; t["total"] += total; t["calls"] += 1
+    emit(node=node or "LLM", kind="tokens", prompt=prompt, completion=completion, total=total)
+
+
+def get_tokens() -> dict:
+    return dict(getattr(_tok_local, "tokens", None) or {"prompt": 0, "completion": 0, "total": 0, "calls": 0})
+
+
 def ensure_trace_table() -> None:
     conn = get_connection()
     try:
@@ -41,6 +61,10 @@ def ensure_trace_table() -> None:
             rag_required INTEGER, answerable INTEGER, sufficiency REAL, retries INTEGER,
             abstain INTEGER, approval_required INTEGER, steps_json TEXT, final_response TEXT,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP)""")
+        cols = [r["name"] for r in conn.execute("PRAGMA table_info(agent_traces)").fetchall()]
+        for c in ("total_tokens", "prompt_tokens", "completion_tokens", "llm_calls"):
+            if c not in cols:
+                conn.execute(f"ALTER TABLE agent_traces ADD COLUMN {c} INTEGER")
         conn.commit()
     finally:
         conn.close()
@@ -84,23 +108,27 @@ def build_steps(state: dict) -> list[dict]:
     return steps
 
 
-def save(state: dict, session_id: str | None = None, query: str | None = None) -> str:
+def save(state: dict, session_id: str | None = None, query: str | None = None,
+         tokens: dict | None = None) -> str:
     ensure_trace_table()
     run_id = "R-" + uuid.uuid4().hex[:8]
     suff = state.get("_rag_sufficiency") or {}
     steps = build_steps(state)
+    tok = tokens or {}
     conn = get_connection()
     try:
         conn.execute("""INSERT INTO agent_traces(run_id,session_id,query,intent,confidence,rag_required,
-            answerable,sufficiency,retries,abstain,approval_required,steps_json,final_response,created_at)
-            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            answerable,sufficiency,retries,abstain,approval_required,steps_json,final_response,created_at,
+            total_tokens,prompt_tokens,completion_tokens,llm_calls)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                      (run_id, session_id, query or state.get("user_query"), state.get("intent"),
                       state.get("intent_confidence"), 1 if state.get("rag_required") else 0,
                       1 if state.get("rag_context_sufficient") else 0,
                       suff.get("context_sufficiency_score"), state.get("rag_retry_count"),
                       1 if state.get("_rag_abstain") else 0, 1 if state.get("approval_required") else 0,
                       json.dumps(steps, ensure_ascii=False, default=str), state.get("final_response"),
-                      datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+                      datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                      tok.get("total"), tok.get("prompt"), tok.get("completion"), tok.get("calls")))
         conn.commit()
     finally:
         conn.close()
@@ -112,7 +140,7 @@ def list_traces(limit: int = 40, session_id: str | None = None) -> list[dict]:
     where = "WHERE session_id=? " if session_id else ""
     params = (session_id, limit) if session_id else (limit,)
     return q(f"""SELECT run_id, query, intent, confidence, rag_required, answerable, retries,
-                abstain, approval_required, created_at FROM agent_traces {where}
+                abstain, approval_required, total_tokens, llm_calls, created_at FROM agent_traces {where}
                 ORDER BY created_at DESC, rowid DESC LIMIT ?""", params)
 
 

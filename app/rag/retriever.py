@@ -8,16 +8,16 @@ import json
 
 import trace_store
 from config import settings
-from llm import get_client
+from llm import complete
 from rag.index import search
 
 MAX_RETRIES = 2
 
 
 def _json_chat(system: str, user: str) -> dict:
-    resp = get_client().chat.completions.create(
-        model=settings.openai_router_model,
-        messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+    resp = complete(
+        [{"role": "system", "content": system}, {"role": "user", "content": user}],
+        model=settings.openai_router_model, node="RAG Retriever",
         response_format={"type": "json_object"},
     )
     try:
