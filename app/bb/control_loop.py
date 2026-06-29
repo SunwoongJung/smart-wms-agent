@@ -12,32 +12,42 @@ from bb.store import ensure_schema
 
 
 def run_once(force: bool = False) -> dict:
-    """1 사이클: NEW 이벤트 → 관련 에이전트 propose → Action 생성 → Executor 실행."""
+    """1 사이클: NEW 이벤트 → 에이전트 propose → Action 생성·실행. 실행 중 발생한 체인 이벤트
+    (NEED_PUTAWAY·TASK_CREATED)도 같은 사이클에서 소진(budget·pass 상한)."""
     ensure_schema()
     if not force and not settings.enabled():
         return {"enabled": False, "events": 0, "created": [], "executed": []}
-    maxn = settings.max_actions_per_cycle()
+    budget = settings.max_actions_per_cycle()
     out = {"enabled": True, "events": 0, "created": [], "executed": []}
-    for ev in events.new_events(limit=maxn):
-        events.set_status(ev["event_id"], "PROCESSING")
-        audit.log("EVENT_RECEIVED", "OK", event_id=ev["event_id"], message=ev["event_type"])
-        for agent in REGISTRY:
-            if not agent.handles(ev["event_type"]):
-                continue
-            for spec in agent.propose(ev):
-                res = actions.create(**spec)
-                out["created"].append({"action_id": res.get("action_id"), "status": res["status"],
-                                       "agent": spec["agent_name"], "type": spec["action_type"]})
-                if res["status"] == "PENDING":
-                    audit.log("ACTION_CREATED", "OK", action_id=res["action_id"], event_id=ev["event_id"],
-                              agent_name=spec["agent_name"], action_type=spec["action_type"],
-                              message=spec.get("reason"))
-                    if len(out["executed"]) < maxn:
+    passes = 0
+    while budget > 0 and passes < 100:
+        passes += 1
+        evs = events.new_events(limit=budget)
+        if not evs:
+            break
+        for ev in evs:
+            if budget <= 0:
+                break
+            events.set_status(ev["event_id"], "PROCESSING")
+            audit.log("EVENT_RECEIVED", "OK", event_id=ev["event_id"], message=ev["event_type"])
+            for agent in REGISTRY:
+                if not agent.handles(ev["event_type"]):
+                    continue
+                for spec in agent.propose(ev):
+                    res = actions.create(**spec)
+                    out["created"].append({"action_id": res.get("action_id"), "status": res["status"],
+                                           "agent": spec["agent_name"], "type": spec["action_type"]})
+                    if res["status"] == "PENDING":
+                        audit.log("ACTION_CREATED", "OK", action_id=res["action_id"], event_id=ev["event_id"],
+                                  agent_name=spec["agent_name"], action_type=spec["action_type"],
+                                  message=spec.get("reason"))
                         r = executor.execute(res["action_id"])
-                        out["executed"].append({"action_id": res["action_id"],
-                                                "status": r.get("status"), "reason": r.get("reason")})
-        events.set_status(ev["event_id"], "PROCESSED")
-        out["events"] += 1
+                        out["executed"].append({"action_id": res["action_id"], "agent": spec["agent_name"],
+                                                "type": spec["action_type"], "status": r.get("status"),
+                                                "reason": r.get("reason")})
+                        budget -= 1
+            events.set_status(ev["event_id"], "PROCESSED")
+            out["events"] += 1
     return out
 
 

@@ -12,6 +12,13 @@ def now() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _add_cols(conn, table: str, cols: dict) -> None:
+    have = [r["name"] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()]
+    for c, ddl in cols.items():
+        if c not in have:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {c} {ddl}")
+
+
 def ensure_schema() -> None:
     """블랙보드 테이블 생성 + WAL + resources에 skill/zone 컬럼 보강(1회)."""
     global _ensured
@@ -24,10 +31,9 @@ def ensure_schema() -> None:
         except Exception:
             pass
         conn.executescript(_SCHEMA.read_text(encoding="utf-8"))
-        cols = [r["name"] for r in conn.execute("PRAGMA table_info(resources)").fetchall()]
-        for c in ("skill", "zone_id"):
-            if c not in cols:
-                conn.execute(f"ALTER TABLE resources ADD COLUMN {c} TEXT")
+        _add_cols(conn, "resources", {"skill": "TEXT", "zone_id": "TEXT"})
+        _add_cols(conn, "picking_tasks", {"worker_id": "TEXT", "priority": "INTEGER DEFAULT 0"})
+        _add_cols(conn, "stocking_tasks", {"worker_id": "TEXT"})
         conn.commit()
     finally:
         conn.close()

@@ -9,7 +9,7 @@ import uuid
 from db.database import get_connection
 from tools.common import q
 
-from bb import actions, audit, locks, policy, reservations, settings
+from bb import actions, audit, events, locks, policy, reservations, settings
 from bb.store import now
 
 
@@ -30,6 +30,51 @@ def _precheck(a: dict) -> dict:
                  if reservations.available(ln["sku"]) < ln["qty"]]
         if short:
             return {"ok": False, "reason": f"가용재고 부족: {','.join(short)}"}
+        return {"ok": True}
+    if at == "CREATE_INBOUND_TASK":
+        o = q("SELECT status FROM inbound_orders WHERE inbound_no=?", (p.get("inbound_no"),))
+        if not o:
+            return {"ok": False, "reason": "입고 없음"}
+        if o[0]["status"] != "PLANNED":
+            return {"ok": False, "reason": f"입고 처리 불가 상태({o[0]['status']})"}
+        return {"ok": True}
+    if at == "CREATE_PUTAWAY_TASK":
+        o = q("SELECT status FROM inbound_orders WHERE inbound_no=?", (p.get("inbound_no"),))
+        if not o or o[0]["status"] != "RECEIVED":
+            return {"ok": False, "reason": "입고완료(RECEIVED) 아님"}
+        if q("SELECT 1 FROM stocking_tasks WHERE inbound_no=? AND status!='CANCELLED'", (p.get("inbound_no"),)):
+            return {"ok": False, "reason": "이미 적치작업 존재"}
+        loc = q("SELECT capacity, occupied_qty FROM locations WHERE location_id=?", (p.get("location_id"),))
+        if not loc:
+            return {"ok": False, "reason": "Location 없음"}
+        if (loc[0]["capacity"] - loc[0]["occupied_qty"]) < int(p.get("qty", 0)):
+            return {"ok": False, "reason": "Location 용량 부족"}
+        return {"ok": True}
+    if at == "CREATE_SHIPPING_TASK":
+        o = q("SELECT status FROM outbound_orders WHERE order_no=?", (p.get("order_no"),))
+        if not o or o[0]["status"] != "PICKING_ISSUED":
+            return {"ok": False, "reason": "피킹 완료(PICKING_ISSUED) 아님"}
+        if q("SELECT 1 FROM shipping_pending WHERE order_no=? AND status='PENDING'", (p.get("order_no"),)):
+            return {"ok": False, "reason": "이미 출고대기 존재"}
+        return {"ok": True}
+    if at == "ALLOCATE_WORKER":
+        tbl = "picking_tasks" if p.get("kind") == "picking" else "stocking_tasks"
+        idcol = "picking_task_id" if p.get("kind") == "picking" else "stocking_task_id"
+        t = q(f"SELECT worker_id, status FROM {tbl} WHERE {idcol}=?", (p.get("task_id"),))
+        if not t:
+            return {"ok": False, "reason": "작업 없음"}
+        if t[0]["worker_id"]:
+            return {"ok": False, "reason": "이미 작업자 배정됨"}
+        w = q("SELECT active_flag FROM resources WHERE resource_id=?", (p.get("resource_id"),))
+        if not w or not w[0]["active_flag"]:
+            return {"ok": False, "reason": "작업자 가용 아님"}
+        return {"ok": True}
+    if at == "REPRIORITIZE_PICKING_TASK":
+        t = q("SELECT status FROM picking_tasks WHERE picking_task_id=?", (p.get("task_id"),))
+        if not t:
+            return {"ok": False, "reason": "피킹작업 없음"}
+        if t[0]["status"] in ("COMPLETED", "CANCELLED"):
+            return {"ok": False, "reason": f"변경 불가 상태({t[0]['status']})"}
         return {"ok": True}
     return {"ok": True}
 
@@ -56,17 +101,95 @@ def _h_create_picking(conn, a: dict) -> dict:
     return {"picking_task_id": task_id, "order_no": order_no, "estimated_minutes": est, "reservations": resv}
 
 
-_HANDLERS = {"CREATE_PICKING_TASK": _h_create_picking}
+def _h_create_inbound(conn, a: dict) -> dict:
+    p = json.loads(a.get("payload_json") or "{}")
+    conn.execute("UPDATE inbound_orders SET status='RECEIVED', received_datetime=? WHERE inbound_no=?",
+                 (now(), p["inbound_no"]))
+    return {"inbound_no": p["inbound_no"], "status": "RECEIVED"}
+
+
+def _h_create_putaway(conn, a: dict) -> dict:
+    p = json.loads(a.get("payload_json") or "{}")
+    inbound_no, sku, loc, qty = p["inbound_no"], p["sku"], p["location_id"], int(p["qty"])
+    task_id = "STK-" + uuid.uuid4().hex[:6]
+    conn.execute("INSERT INTO stocking_tasks(stocking_task_id,inbound_no,location_id,qty,status) VALUES(?,?,?,?,?)",
+                 (task_id, inbound_no, loc, qty, "ISSUED"))
+    conn.execute("UPDATE inbound_orders SET status='STOCKING_TASK_CREATED' WHERE inbound_no=?", (inbound_no,))
+    conn.execute("UPDATE locations SET occupied_qty=occupied_qty+? WHERE location_id=?", (qty, loc))  # 위치 임시 점유
+    return {"stocking_task_id": task_id, "inbound_no": inbound_no, "location_id": loc, "qty": qty}
+
+
+def _h_create_shipping(conn, a: dict) -> dict:
+    p = json.loads(a.get("payload_json") or "{}")
+    order_no = p["order_no"]
+    cur = conn.execute("INSERT INTO shipping_pending(order_no,ready_datetime,status) VALUES(?,?, 'PENDING')",
+                       (order_no, now()))
+    conn.execute("UPDATE outbound_orders SET status='SHIPPING_PENDING' WHERE order_no=?", (order_no,))
+    return {"order_no": order_no, "pending_id": cur.lastrowid, "status": "SHIPPING_PENDING"}
+
+
+def _h_allocate_worker(conn, a: dict) -> dict:
+    p = json.loads(a.get("payload_json") or "{}")
+    tbl = "picking_tasks" if p.get("kind") == "picking" else "stocking_tasks"
+    idcol = "picking_task_id" if p.get("kind") == "picking" else "stocking_task_id"
+    conn.execute(f"UPDATE {tbl} SET worker_id=? WHERE {idcol}=?", (p["resource_id"], p["task_id"]))
+    return {"task_id": p["task_id"], "kind": p.get("kind"), "resource_id": p["resource_id"]}
+
+
+def _h_reprioritize_picking(conn, a: dict) -> dict:
+    p = json.loads(a.get("payload_json") or "{}")
+    conn.execute("UPDATE picking_tasks SET priority=? WHERE picking_task_id=?",
+                 (int(p["new_priority"]), p["task_id"]))
+    return {"task_id": p["task_id"], "new_priority": int(p["new_priority"])}
+
+
+_HANDLERS = {
+    "CREATE_PICKING_TASK": _h_create_picking,
+    "CREATE_INBOUND_TASK": _h_create_inbound,
+    "CREATE_PUTAWAY_TASK": _h_create_putaway,
+    "CREATE_SHIPPING_TASK": _h_create_shipping,
+    "ALLOCATE_WORKER": _h_allocate_worker,
+    "REPRIORITIZE_PICKING_TASK": _h_reprioritize_picking,
+}
+
+
+def _emit_followups(a: dict, result: dict) -> None:
+    """실행 성공 후 다음 에이전트를 깨우는 체인 이벤트(블랙보드 data-driven 연쇄)."""
+    at = a["action_type"]
+    if at == "CREATE_INBOUND_TASK":
+        events.add_event("NEED_PUTAWAY", "inbound", result.get("inbound_no"), source="chain")
+    elif at == "CREATE_PUTAWAY_TASK":
+        events.add_event("TASK_CREATED", "task", result.get("stocking_task_id"), {"kind": "stocking"}, source="chain")
+    elif at == "CREATE_PICKING_TASK":
+        events.add_event("TASK_CREATED", "task", result.get("picking_task_id"), {"kind": "picking"}, source="chain")
 
 
 def _postcheck(conn, a: dict, result: dict) -> dict:
-    if a["action_type"] == "CREATE_PICKING_TASK":
+    at = a["action_type"]
+    if at == "CREATE_PICKING_TASK":
         if not conn.execute("SELECT 1 FROM picking_tasks WHERE picking_task_id=?", (result["picking_task_id"],)).fetchone():
             return {"ok": False, "reason": "피킹작업 생성 확인 실패"}
         st = conn.execute("SELECT status FROM outbound_orders WHERE order_no=?", (result["order_no"],)).fetchone()
         if not st or st["status"] != "PICKING_ISSUED":
             return {"ok": False, "reason": "주문 상태 미반영"}
         return {"ok": True}
+    if at == "CREATE_INBOUND_TASK":
+        st = conn.execute("SELECT status FROM inbound_orders WHERE inbound_no=?", (result["inbound_no"],)).fetchone()
+        return {"ok": bool(st and st["status"] == "RECEIVED"), "reason": "입고상태 미반영"}
+    if at == "CREATE_PUTAWAY_TASK":
+        ok = conn.execute("SELECT 1 FROM stocking_tasks WHERE stocking_task_id=?", (result["stocking_task_id"],)).fetchone()
+        return {"ok": bool(ok), "reason": "적치작업 확인 실패"}
+    if at == "CREATE_SHIPPING_TASK":
+        ok = conn.execute("SELECT 1 FROM shipping_pending WHERE order_no=? AND status='PENDING'", (result["order_no"],)).fetchone()
+        return {"ok": bool(ok), "reason": "출고대기 확인 실패"}
+    if at == "ALLOCATE_WORKER":
+        tbl = "picking_tasks" if result.get("kind") == "picking" else "stocking_tasks"
+        idcol = "picking_task_id" if result.get("kind") == "picking" else "stocking_task_id"
+        w = conn.execute(f"SELECT worker_id FROM {tbl} WHERE {idcol}=?", (result["task_id"],)).fetchone()
+        return {"ok": bool(w and w["worker_id"] == result["resource_id"]), "reason": "배정 확인 실패"}
+    if at == "REPRIORITIZE_PICKING_TASK":
+        pr = conn.execute("SELECT priority FROM picking_tasks WHERE picking_task_id=?", (result["task_id"],)).fetchone()
+        return {"ok": bool(pr and pr["priority"] == result["new_priority"]), "reason": "우선순위 미반영"}
     return {"ok": True}
 
 
@@ -140,6 +263,7 @@ def execute(action_id: str) -> dict:
                     postcheck_result_json=json.dumps(post, ensure_ascii=False))
             return {"status": "FAILED", "reason": post.get("reason")}
         conn.commit()
+        _emit_followups(a, result)            # 다음 에이전트를 깨우는 체인 이벤트
         audit.log("EXECUTE", "OK", after=result, **base)
         audit.log("POSTCHECK", "OK", **base)
         audit.log("FINISHED", "OK", **base)
