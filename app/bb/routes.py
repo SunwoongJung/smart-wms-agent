@@ -2,7 +2,7 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from bb import actions, audit, events, reservations, settings
+from bb import actions, audit, control_loop, events, reservations, settings
 
 router = APIRouter(prefix="/api", tags=["blackboard"])
 
@@ -75,6 +75,28 @@ def action_get(action_id: str):
 def audit_list(action_id: str | None = None, event_id: str | None = None,
                phase: str | None = None, result: str | None = None, limit: int = 200):
     return {"logs": audit.list_logs(action_id, event_id, phase, result, limit)}
+
+
+# ---------- Control Loop ----------
+@router.post("/blackboard/run-once")
+def run_once(force: bool = False):
+    """1 사이클 실행(이벤트→에이전트→Action→실행). force=true면 Auto Mode OFF여도 실행."""
+    return control_loop.run_once(force=force)
+
+
+@router.post("/auto-mode/loop/start")
+def loop_start():
+    return control_loop.start()
+
+
+@router.post("/auto-mode/loop/stop")
+def loop_stop():
+    return control_loop.stop()
+
+
+@router.get("/auto-mode/loop/status")
+def loop_status():
+    return control_loop.status()
 
 
 # ---------- 가용/예약(검증·디버그용) ----------
