@@ -98,6 +98,16 @@ def generate_event() -> dict:
                   "message": f"신규 입고 요청 {inbound_no} · {sku} {qty}개 (예정 {exp})"}
     finally:
         conn.close()
+    try:   # 블랙보드 이벤트 적재(Auto Mode 컨트롤 루프가 소비) — 저장 후 알림 일관성 유지
+        from bb import events as bb_events
+        if ev["kind"] == "outbound":
+            bb_events.add_event("NEW_OUTBOUND_ORDER", "order", ev["id"],
+                                {"sku": ev["sku"], "qty": ev["qty"]}, source="realtime")
+        elif ev["kind"] == "inbound":
+            bb_events.add_event("NEW_INBOUND_ARRIVAL", "inbound", ev["id"],
+                                {"sku": ev["sku"], "qty": ev["qty"]}, source="realtime")
+    except Exception:
+        pass
     _state["count"] += 1
     return ev
 

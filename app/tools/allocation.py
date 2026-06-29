@@ -40,7 +40,9 @@ def _available_map(skus: list[str]) -> dict:
     rows = q(f"""SELECT sku, COALESCE(SUM(qty),0) s FROM inventory
                  WHERE status='AVAILABLE' AND sku IN ({marks}) GROUP BY sku""", tuple(skus))
     have = {r["sku"]: r["s"] for r in rows}
-    return {s: have.get(s, 0) for s in skus}
+    from bb.reservations import reserved_map           # 예약재고 단일출처 차감(가용 = on_hand - reserved)
+    resv = reserved_map(skus)
+    return {s: max(0, have.get(s, 0) - resv.get(s, 0)) for s in skus}
 
 
 def _atp_map(skus: list[str], until: str) -> dict:
