@@ -872,7 +872,7 @@ async function openTrace(runId) {
     `<div class="fstep"><div><span class="fs-node">${safeText(s.node)}</span><span class="fs-label">${safeText(s.label || "")}</span></div>
       <div class="fs-body">${renderStepBody(s)}</div></div>`).join("");
   el.innerHTML = `<div class="td-q">${safeText(t.query || "")}</div>
-    <div class="td-sub">run ${safeText(t.run_id)} · ${safeText((t.created_at || "").replace("T", " ").slice(0, 16))}${t.total_tokens != null ? ` · ${t.total_tokens} 토큰 (${t.llm_calls || 0}콜)` : ""}</div>
+    <div class="td-sub">run ${safeText(t.run_id)} · ${safeText((t.created_at || "").replace("T", " ").slice(0, 16))}${t.total_tokens != null ? ` · ${t.total_tokens} 토큰 (LLM ${t.llm_calls || 0}콜)` : ""}</div>
     <div class="flow">${flow}</div>`;
 }
 
@@ -936,7 +936,7 @@ function handleChatEvent(ev, ui) {
     if (ctx.steps && ev.tokens) {
       const t = ev.tokens, row = document.createElement("div");
       row.className = "tok-total";
-      row.textContent = `Σ 토큰 ${t.total || 0} · ${t.calls || 0}콜 (P${t.prompt || 0}/C${t.completion || 0})`;
+      row.textContent = `Σ 토큰 ${t.total || 0} · LLM ${t.calls || 0}콜 (입력 ${t.prompt || 0} / 출력 ${t.completion || 0})`;
       ui.stepsEl.appendChild(row);
     }
     if (ctx.steps) { TRACE.runId = null; loadTraces(CHAT.sessionId).catch(() => {}); }  // 새 run 목록·상세 갱신
