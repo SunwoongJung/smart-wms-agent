@@ -525,8 +525,10 @@ function activateTab(name) {
   document.querySelectorAll(".tab").forEach((x) => x.classList.toggle("active", x.dataset.tab === name));
   document.querySelectorAll(".tab-panel").forEach((p) => p.classList.add("hidden"));
   const panel = $("#panel-" + name); if (panel) panel.classList.remove("hidden");
+  if (name !== "auto") leaveAuto();
   if (name === "approval") loadApproval().catch(() => {});
   if (name === "trace") { loadTraces().catch(() => {}); loadSessionInto(TRACE_CTX).catch(() => {}); }
+  if (name === "auto") enterAuto();
 }
 function setupTabs() {
   document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => activateTab(t.dataset.tab)));
@@ -1084,6 +1086,179 @@ function setupLiveSettings() {
   $("#live-emit-now").addEventListener("click", () => fetch("/realtime/emit", { method: "POST" }).catch(() => {}));
   $("#live-modal").addEventListener("click", (e) => { if (e.target.id === "live-modal") closeLiveSettings(); });
 }
+
+/* ---------- 창고 자동운영 (블랙보드 대시보드) ---------- */
+const AGENTS = [
+  { id: "InboundAgent", label: "입고", emoji: "📥", kind: "dom" },
+  { id: "PutawayAgent", label: "적치", emoji: "📦", kind: "dom" },
+  { id: "PickingAgent", label: "피킹", emoji: "🛒", kind: "dom" },
+  { id: "OutboundAgent", label: "출고", emoji: "🚚", kind: "dom" },
+  { id: "ResourceAgent", label: "자원배정", emoji: "👷", kind: "dom" },
+  { id: "InventoryRiskAgent", label: "재고위험", emoji: "⚠️", kind: "dom" },
+  { id: "ControlAgent", label: "컨트롤", emoji: "🧭", kind: "inf" },
+  { id: "PolicyAgent", label: "정책", emoji: "🛡️", kind: "inf" },
+  { id: "SimulationAgent", label: "시뮬레이션", emoji: "🧊", kind: "inf" },
+  { id: "ExplanationAgent", label: "설명", emoji: "💬", kind: "inf" },
+];
+const AGENT_BY_ID = Object.fromEntries(AGENTS.map((a) => [a.id, a]));
+const AUTO = { on: false, seen: new Set(), flash: {}, poll: null, actions: [], booted: false };
+const PHASE_LABEL = {
+  EVENT_RECEIVED: "이벤트 수신", ACTION_CREATED: "Action 생성", POLICY_CHECK: "정책 검토",
+  PRECHECK: "사전검증", LOCK_ACQUIRED: "락 확보", EXECUTE: "실행", POSTCHECK: "사후검증", FINISHED: "완료",
+};
+
+function agentForLog(l) {
+  if (l.phase === "EVENT_RECEIVED") return "ControlAgent";
+  if (l.phase === "POLICY_CHECK") return "PolicyAgent";
+  if (l.agent_name === "SimulationAgent") return "SimulationAgent";
+  if (l.phase === "ACTION_CREATED") return l.agent_name;
+  if (AGENT_BY_ID[l.agent_name]) return l.agent_name;
+  return "ControlAgent";
+}
+
+function statusBadge(st) {
+  const m = {
+    SUCCESS: ["성공", "ok"], POLICY_BLOCKED: ["차단", "blk"], FAILED: ["실패", "fail"],
+    SKIPPED_DUPLICATE: ["중복생략", "mut"], PENDING: ["대기", "run"], READY: ["준비", "run"],
+    RUNNING: ["실행중", "run"], COMPENSATED: ["보상", "mut"],
+  };
+  const [t, c] = m[st] || [st || "-", "mut"];
+  return `<span class="ab ${c}">${t}</span>`;
+}
+
+function renderAgents() {
+  const el = $("#auto-agents"); if (!el) return;
+  const nowt = Date.now();
+  el.innerHTML = AGENTS.map((a) => {
+    const act = AUTO.flash[a.id] && (nowt - AUTO.flash[a.id] < 2400);
+    return `<div class="agent-cell ${a.kind} ${act ? "active" : ""}" data-agent="${a.id}">
+      <div class="agent-circle">${a.emoji}</div>
+      <div class="agent-name">${a.label}</div>
+      <div class="agent-sub">${a.id.replace("Agent", "")}</div></div>`;
+  }).join("");
+}
+
+function autoLogLine(l) {
+  const t = (l.created_at || "").split(" ")[1] || "";
+  const ag = AGENT_BY_ID[agentForLog(l)];
+  const c = l.result === "OK" ? "ok" : (l.result === "BLOCKED" ? "blk" : (l.result === "FAIL" ? "fail" : "mut"));
+  return `<div class="alog-line"><span class="alog-t">${t}</span>`
+    + `<span class="alog-ag">${ag ? ag.emoji + " " + ag.label : (l.agent_name || "—")}</span>`
+    + `<span class="alog-ph ${c}">${PHASE_LABEL[l.phase] || l.phase}</span>`
+    + `<span class="alog-msg">${escapeHtml(l.message || "")}</span></div>`;
+}
+
+function renderAutoActions(list) {
+  AUTO.actions = list;
+  const el = $("#auto-actions"); if (!el) return;
+  el.innerHTML = list.length ? list.map((a) => {
+    const ag = AGENT_BY_ID[a.agent_name];
+    return `<div class="aact" data-id="${a.action_id}"><span class="aact-ag">${ag ? ag.emoji : "•"}</span>`
+      + `<span class="aact-type">${escapeHtml(a.action_type)}</span>`
+      + `<span class="aact-tgt">${escapeHtml(a.target_id || "")}</span>${statusBadge(a.status)}</div>`;
+  }).join("") : `<div class="auto-empty">아직 Action이 없습니다.</div>`;
+}
+
+function setSimbar(s) {
+  const el = $("#auto-simbar"); if (!el) return;
+  if (!s || s.ran === false) { el.className = "auto-simbar"; el.innerHTML = `<span class="sim-ic">🧊</span> 배치 시뮬레이션 — ${s && s.reason ? escapeHtml(s.reason) : "대기"}`; return; }
+  const k = s.kpis || {};
+  const util = k.resource_utilization_team != null ? Math.round(k.resource_utilization_team * 100) + "%" : "—";
+  el.className = "auto-simbar " + (s.ok ? "ok" : "blk");
+  el.innerHTML = `<span class="sim-ic">🧊</span> 배치 시뮬: 팀 가동률 <b>${util}</b> · 출고지연 ${fmtNum(k.shipping_delay_count, 0)}건 — ${s.ok ? "정상(실행 허용)" : "과부하(자동작업 보류)"}`;
+}
+
+function updateAutoToggle(enabled) {
+  AUTO.on = enabled;
+  const pill = $("#auto-pill"), btn = $("#auto-toggle");
+  if (pill) { pill.textContent = enabled ? "ON" : "OFF"; pill.classList.toggle("on", enabled); }
+  if (btn) { btn.textContent = enabled ? "■ 자동운영 중지" : "자동운영 시작"; btn.classList.toggle("running", enabled); }
+}
+
+async function pollAuto() {
+  try {
+    const [mode, logs, acts] = await Promise.all([
+      fetch("/api/auto-mode").then((r) => r.json()),
+      fetch("/api/blackboard/audit-logs?limit=60").then((r) => r.json()),
+      fetch("/api/blackboard/actions?limit=40").then((r) => r.json()),
+    ]);
+    updateAutoToggle((mode.auto_mode_enabled || "false") === "true");
+    if ($("#auto-cycle") && document.activeElement !== $("#auto-cycle")) {
+      $("#auto-cycle").value = mode.auto_mode_cycle_interval_seconds || 15;
+    }
+    const fresh = (logs.logs || []).filter((l) => !AUTO.seen.has(l.log_id));
+    fresh.forEach((l) => { AUTO.seen.add(l.log_id); AUTO.flash[agentForLog(l)] = Date.now(); });
+    if (AUTO.seen.size > 4000) AUTO.seen = new Set([...AUTO.seen].slice(-2000));
+    $("#auto-log").innerHTML = (logs.logs || []).map(autoLogLine).join("") || `<div class="auto-empty">동작 없음</div>`;
+    $("#auto-log-meta").textContent = `${(logs.logs || []).length}건`;
+    renderAutoActions(acts.actions || []);
+    renderAgents();
+  } catch (_) { /* noop */ }
+}
+
+async function refreshSimbar() {
+  try { setSimbar(await fetch("/api/blackboard/simulation").then((r) => r.json())); }
+  catch (_) { setSimbar(null); }
+}
+
+async function selectAutoAction(id) {
+  AUTO.flash.ExplanationAgent = Date.now(); renderAgents();
+  const a = AUTO.actions.find((x) => x.action_id === id) || {};
+  const det = $("#auto-detail");
+  det.innerHTML = `<div class="adet-head">${escapeHtml(a.action_type || "")} · ${escapeHtml(a.target_id || "")} ${statusBadge(a.status || "")}</div><div class="adet-ex muted">설명 생성 중…</div>`;
+  try {
+    const ex = await fetch(`/api/blackboard/actions/${id}/explanation`).then((r) => r.json());
+    det.innerHTML = `<div class="adet-head">${escapeHtml(a.action_type || "")} · ${escapeHtml(a.target_id || "")} ${statusBadge(a.status || "")}</div>`
+      + `<div class="adet-ex">${escapeHtml(ex.explanation || ex.error || "설명 없음")}</div>`
+      + `<div class="adet-src">출처: ${escapeHtml(ex.source || "-")}</div>`;
+  } catch (e) { det.querySelector(".adet-ex").textContent = "설명 조회 실패"; }
+}
+
+async function toggleAuto() {
+  const next = !AUTO.on;
+  updateAutoToggle(next);
+  if (next) {
+    await fetch("/api/auto-mode/on", { method: "POST" }).catch(() => {});
+    await fetch("/api/auto-mode/loop/start", { method: "POST" }).catch(() => {});
+    refreshSimbar().catch(() => {});
+  } else {
+    await fetch("/api/auto-mode/off", { method: "POST" }).catch(() => {});
+    await fetch("/api/auto-mode/loop/stop", { method: "POST" }).catch(() => {});
+  }
+}
+
+function setupAuto() {
+  if (AUTO.booted) return; AUTO.booted = true;
+  renderAgents();
+  $("#auto-toggle").addEventListener("click", () => toggleAuto().catch(() => {}));
+  $("#auto-runonce").addEventListener("click", async () => {
+    $("#auto-runonce").disabled = true;
+    try { await fetch("/api/blackboard/run-once?force=true", { method: "POST" }); await refreshSimbar(); await pollAuto(); }
+    finally { $("#auto-runonce").disabled = false; }
+  });
+  $("#auto-cycle").addEventListener("change", (e) => {
+    const v = Math.max(2, Math.min(600, Number(e.target.value) || 15));
+    fetch("/api/auto-mode/settings", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: "auto_mode_cycle_interval_seconds", value: String(v) }) }).catch(() => {});
+  });
+  $("#auto-actions").addEventListener("click", (e) => {
+    const c = e.target.closest(".aact"); if (c) selectAutoAction(c.dataset.id).catch(() => {});
+  });
+  $("#auto-agents").addEventListener("click", (e) => {
+    const c = e.target.closest(".agent-cell"); if (!c) return;
+    const first = AUTO.actions.find((a) => a.agent_name === c.dataset.agent);
+    if (first) selectAutoAction(first.action_id).catch(() => {});
+  });
+}
+
+function enterAuto() {
+  setupAuto();
+  pollAuto().catch(() => {});
+  refreshSimbar().catch(() => {});
+  if (AUTO.poll) clearInterval(AUTO.poll);
+  AUTO.poll = setInterval(() => { renderAgents(); pollAuto().catch(() => {}); }, 2000);
+}
+function leaveAuto() { if (AUTO.poll) { clearInterval(AUTO.poll); AUTO.poll = null; } }
 
 async function init() {
   setupTabs(); setupChat(); setupDataBrowser(); setupRealtime();

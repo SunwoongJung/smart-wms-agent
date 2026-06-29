@@ -376,3 +376,51 @@ body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--f
 @keyframes blink { 0%, 80%, 100% { opacity: .25; } 40% { opacity: .9; } }
 
 .chat-item.active { background: #eaf0ff; border-color: #cfe0ff; }
+
+/* ===== 창고 자동운영 ===== */
+.auto-controls { display: flex; align-items: center; gap: 10px; }
+.auto-cyc { font-size: 12.5px; color: var(--ink-sub); display: flex; align-items: center; gap: 5px; }
+.auto-cyc input { width: 56px; padding: 5px 7px; border: 1px solid var(--line); border-radius: 8px; font-size: 13px; }
+.auto-pill { font-size: 11px; font-weight: 700; padding: 2px 9px; border-radius: 999px; background: #e7eaf0; color: #707a88; vertical-align: middle; margin-left: 6px; }
+.auto-pill.on { background: #d8f3e3; color: #15803d; }
+.auto-toggle.running { background: var(--red); }
+.auto-simbar { margin: 4px 0 14px; padding: 9px 14px; border-radius: 10px; background: #f1f4fa; border: 1px solid var(--line); font-size: 13px; color: var(--ink); }
+.auto-simbar.ok { background: #eefaf2; border-color: #bfe7cd; }
+.auto-simbar.blk { background: #fef3f1; border-color: #f4c9c2; }
+.auto-simbar .sim-ic { margin-right: 4px; }
+
+.auto-agents { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 16px; }
+.agent-cell { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 8px 11px; text-align: center; cursor: pointer; transition: transform .15s, box-shadow .25s, border-color .25s; box-shadow: var(--shadow); }
+.agent-cell:hover { transform: translateY(-2px); }
+.agent-circle { width: 50px; height: 50px; margin: 0 auto 8px; border-radius: 50%; display: grid; place-items: center; font-size: 23px; background: #eef2f9; border: 2px solid #dbe3f0; transition: transform .2s, box-shadow .25s, background .25s, border-color .25s; }
+.agent-cell.inf .agent-circle { background: #f2eefb; border-color: #e0d6f4; }
+.agent-name { font-weight: 700; font-size: 13px; }
+.agent-sub { font-size: 10.5px; color: var(--ink-sub); margin-top: 1px; }
+.agent-cell.active { border-color: var(--accent); }
+.agent-cell.active .agent-circle { background: #dce8ff; border-color: var(--accent); transform: scale(1.12); box-shadow: 0 0 0 4px rgba(47,107,255,.16); animation: agent-pulse 1s ease; }
+.agent-cell.inf.active .agent-circle { background: #ede4ff; border-color: #7c4dff; box-shadow: 0 0 0 4px rgba(124,77,255,.16); }
+@keyframes agent-pulse { 0% { box-shadow: 0 0 0 0 rgba(47,107,255,.4); } 100% { box-shadow: 0 0 0 8px rgba(47,107,255,0); } }
+
+.auto-grid { margin-bottom: 14px; }
+.auto-log { display: flex; flex-direction: column; gap: 1px; max-height: 340px; overflow-y: auto; font-size: 12px; }
+.alog-line { display: grid; grid-template-columns: 56px 92px 70px 1fr; gap: 8px; align-items: baseline; padding: 3px 2px; border-bottom: 1px solid #f1f4f9; animation: lstep-in .2s ease both; }
+.alog-t { color: var(--ink-sub); font-variant-numeric: tabular-nums; font-size: 11px; }
+.alog-ag { font-weight: 600; white-space: nowrap; }
+.alog-ph { font-weight: 600; font-size: 11px; }
+.alog-ph.ok { color: var(--green); } .alog-ph.blk { color: var(--amber); } .alog-ph.fail { color: var(--red); } .alog-ph.mut { color: var(--ink-sub); }
+.alog-msg { color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.auto-actions { display: flex; flex-direction: column; gap: 5px; max-height: 340px; overflow-y: auto; }
+.aact { display: grid; grid-template-columns: 22px 1fr auto auto; gap: 8px; align-items: center; padding: 7px 9px; border: 1px solid var(--line); border-radius: 9px; cursor: pointer; font-size: 12.5px; }
+.aact:hover { background: #f3f6fb; border-color: #cfe0ff; }
+.aact-type { font-weight: 600; }
+.aact-tgt { color: var(--ink-sub); font-size: 11.5px; }
+.ab { font-size: 10.5px; font-weight: 700; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+.ab.ok { background: #d8f3e3; color: #15803d; } .ab.blk { background: #fdecc8; color: #b45309; }
+.ab.fail { background: #fbd7d2; color: #b91c1c; } .ab.run { background: #dbe8ff; color: #1f4fd0; } .ab.mut { background: #e9ecf2; color: #6b7480; }
+.auto-empty { color: var(--ink-sub); font-size: 12.5px; padding: 8px 2px; }
+
+.auto-detail .adet-head { font-weight: 700; font-size: 13px; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+.auto-detail .adet-ex { font-size: 13.5px; line-height: 1.65; color: var(--ink); }
+.auto-detail .adet-ex.muted { color: var(--ink-sub); }
+.auto-detail .adet-src { margin-top: 8px; font-size: 11px; color: var(--ink-sub); }
