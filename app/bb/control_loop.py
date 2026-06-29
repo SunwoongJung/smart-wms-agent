@@ -6,9 +6,9 @@ run_once(): 1 사이클(테스트 가능). run_forever(): 별도 스레드에서
 import threading
 import time
 
-from bb import actions, audit, events, executor, settings
+from bb import actions, audit, events, executor, settings, simulation_agent
 from bb.agents import REGISTRY
-from bb.store import ensure_schema
+from bb.store import ensure_schema, now
 
 
 def run_once(force: bool = False) -> dict:
@@ -19,6 +19,15 @@ def run_once(force: bool = False) -> dict:
         return {"enabled": False, "events": 0, "created": [], "executed": []}
     budget = settings.max_actions_per_cycle()
     out = {"enabled": True, "events": 0, "created": [], "executed": []}
+
+    # 주기 배치 What-if(사이클당 1회) — 처리할 NEW 이벤트가 있을 때만 실행
+    sim_gate = {"ok": True, "ran": False, "reason": "시뮬 미사용", "kpis": {}}
+    if settings.simulation_required() and events.new_events(limit=1):
+        sim_gate = simulation_agent.evaluate()
+        audit.log("PRECHECK", "OK" if sim_gate["ok"] else "BLOCKED",
+                  agent_name="SimulationAgent", action_type="BATCH_SIMULATION", message=sim_gate["reason"])
+    out["simulation"] = sim_gate
+
     passes = 0
     while budget > 0 and passes < 100:
         passes += 1
@@ -41,10 +50,20 @@ def run_once(force: bool = False) -> dict:
                         audit.log("ACTION_CREATED", "OK", action_id=res["action_id"], event_id=ev["event_id"],
                                   agent_name=spec["agent_name"], action_type=spec["action_type"],
                                   message=spec.get("reason"))
-                        r = executor.execute(res["action_id"])
-                        out["executed"].append({"action_id": res["action_id"], "agent": spec["agent_name"],
-                                                "type": spec["action_type"], "status": r.get("status"),
-                                                "reason": r.get("reason")})
+                        if spec["action_type"] in simulation_agent.SIM_REQUIRED and not sim_gate["ok"]:
+                            actions.update(res["action_id"], status="POLICY_BLOCKED",
+                                           reason=f"배치 시뮬 차단: {sim_gate['reason']}", finished_at=now())
+                            audit.log("POLICY_CHECK", "BLOCKED", action_id=res["action_id"], event_id=ev["event_id"],
+                                      agent_name=spec["agent_name"], action_type=spec["action_type"],
+                                      message=f"시뮬 KPI: {sim_gate['reason']}")
+                            out["executed"].append({"action_id": res["action_id"], "agent": spec["agent_name"],
+                                                    "type": spec["action_type"], "status": "POLICY_BLOCKED",
+                                                    "reason": sim_gate["reason"]})
+                        else:
+                            r = executor.execute(res["action_id"])
+                            out["executed"].append({"action_id": res["action_id"], "agent": spec["agent_name"],
+                                                    "type": spec["action_type"], "status": r.get("status"),
+                                                    "reason": r.get("reason")})
                         budget -= 1
             events.set_status(ev["event_id"], "PROCESSED")
             out["events"] += 1

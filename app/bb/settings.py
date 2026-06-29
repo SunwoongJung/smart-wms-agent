@@ -10,6 +10,7 @@ DEFAULTS = {
     "auto_mode_cycle_interval_seconds": "15",   # 의사결정 주기(초)
     "auto_mode_simulation_required": "true",
     "auto_mode_risk_threshold": "0.7",
+    "auto_mode_util_block": "0.95",             # 배치 시뮬 팀 가동률 차단 임계
 }
 
 
@@ -79,3 +80,10 @@ def risk_threshold() -> float:
         return float(get("auto_mode_risk_threshold", 0.7))
     except (TypeError, ValueError):
         return 0.7
+
+
+def util_block() -> float:
+    try:
+        return float(get("auto_mode_util_block", 0.95))
+    except (TypeError, ValueError):
+        return 0.95

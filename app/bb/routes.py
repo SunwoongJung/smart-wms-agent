@@ -99,6 +99,13 @@ def loop_status():
     return control_loop.status()
 
 
+@router.get("/blackboard/simulation")
+def simulation_gate():
+    """현재 상태 배치 What-if(DES) 결과 — KPI·과부하 게이트."""
+    from bb import simulation_agent
+    return simulation_agent.evaluate()
+
+
 # ---------- 가용/예약(검증·디버그용) ----------
 @router.get("/blackboard/availability/{sku}")
 def availability(sku: str):
