@@ -1220,7 +1220,7 @@ async function refreshSimbar() {
 }
 
 async function selectAutoAction(id) {
-  AUTO.flash.ExplanationAgent = Date.now(); renderAgents();
+  AUTO.flash.ExplanationAgent = Date.now(); updateAgentFlash();
   const a = AUTO.actions.find((x) => x.action_id === id) || {};
   const det = $("#auto-detail");
   det.innerHTML = `<div class="adet-head">${escapeHtml(a.action_type || "")} · ${escapeHtml(a.target_id || "")} ${statusBadge(a.status || "")}</div><div class="adet-ex muted">설명 생성 중…</div>`;
