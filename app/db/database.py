@@ -14,9 +14,10 @@ SCHEMA_PATH = Path(__file__).resolve().parent / "schema.sql"
 def get_connection() -> sqlite3.Connection:
     """FK 활성화 + Row 팩토리 적용된 커넥션 반환. db 디렉토리는 자동 생성."""
     settings.db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(settings.db_path)
+    conn = sqlite3.connect(settings.db_path, timeout=10)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA busy_timeout = 8000")   # 동시 접근(컨트롤 루프·시뮬 스레드) 시 잠금 대기 후 재시도
     return conn
 
 

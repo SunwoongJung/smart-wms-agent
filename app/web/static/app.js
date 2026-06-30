@@ -1101,7 +1101,7 @@ const AGENTS = [
   { id: "ExplanationAgent", label: "설명", emoji: "💬", kind: "inf" },
 ];
 const AGENT_BY_ID = Object.fromEntries(AGENTS.map((a) => [a.id, a]));
-const AUTO = { on: false, seen: new Set(), flash: {}, poll: null, actions: [], booted: false };
+const AUTO = { on: false, seen: new Set(), flash: {}, poll: null, actions: [], booted: false, renderedLogs: new Set() };
 const PHASE_LABEL = {
   EVENT_RECEIVED: "이벤트 수신", ACTION_CREATED: "Action 생성", POLICY_CHECK: "정책 검토",
   PRECHECK: "사전검증", LOCK_ACQUIRED: "락 확보", EXECUTE: "실행", POSTCHECK: "사후검증", FINISHED: "완료",
@@ -1126,16 +1126,21 @@ function statusBadge(st) {
   return `<span class="ab ${c}">${t}</span>`;
 }
 
-function renderAgents() {
-  const el = $("#auto-agents"); if (!el) return;
-  const nowt = Date.now();
-  el.innerHTML = AGENTS.map((a) => {
-    const act = AUTO.flash[a.id] && (nowt - AUTO.flash[a.id] < 2400);
-    return `<div class="agent-cell ${a.kind} ${act ? "active" : ""}" data-agent="${a.id}">
+// 그리드는 1회만 그리고(깜빡임 방지), 활성 표시는 클래스 토글로만 갱신
+function buildAgents() {
+  const el = $("#auto-agents"); if (!el || el.childElementCount) return;
+  el.innerHTML = AGENTS.map((a) => `<div class="agent-cell ${a.kind}" data-agent="${a.id}">
       <div class="agent-circle">${a.emoji}</div>
       <div class="agent-name">${a.label}</div>
-      <div class="agent-sub">${a.id.replace("Agent", "")}</div></div>`;
-  }).join("");
+      <div class="agent-sub">${a.id.replace("Agent", "")}</div></div>`).join("");
+}
+function updateAgentFlash() {
+  const el = $("#auto-agents"); if (!el) return;
+  const nowt = Date.now();
+  el.querySelectorAll(".agent-cell").forEach((c) => {
+    const on = AUTO.flash[c.dataset.agent] && (nowt - AUTO.flash[c.dataset.agent] < 2400);
+    c.classList.toggle("active", !!on);
+  });
 }
 
 function autoLogLine(l) {
@@ -1148,12 +1153,15 @@ function autoLogLine(l) {
     + `<span class="alog-msg">${escapeHtml(l.message || "")}</span></div>`;
 }
 
+const hhmmss = (ts) => (ts ? String(ts).split(" ")[1] || String(ts) : "—");
 function renderAutoActions(list) {
   AUTO.actions = list;
   const el = $("#auto-actions"); if (!el) return;
   el.innerHTML = list.length ? list.map((a) => {
     const ag = AGENT_BY_ID[a.agent_name];
-    return `<div class="aact" data-id="${a.action_id}"><span class="aact-ag">${ag ? ag.emoji : "•"}</span>`
+    const t = hhmmss(a.finished_at || a.started_at || a.created_at);
+    return `<div class="aact" data-id="${a.action_id}"><span class="aact-t">${t}</span>`
+      + `<span class="aact-ag">${ag ? ag.emoji : "•"}</span>`
       + `<span class="aact-type">${escapeHtml(a.action_type)}</span>`
       + `<span class="aact-tgt">${escapeHtml(a.target_id || "")}</span>${statusBadge(a.status)}</div>`;
   }).join("") : `<div class="auto-empty">아직 Action이 없습니다.</div>`;
@@ -1186,13 +1194,23 @@ async function pollAuto() {
     if ($("#auto-cycle") && document.activeElement !== $("#auto-cycle")) {
       $("#auto-cycle").value = mode.auto_mode_cycle_interval_seconds || 15;
     }
-    const fresh = (logs.logs || []).filter((l) => !AUTO.seen.has(l.log_id));
-    fresh.forEach((l) => { AUTO.seen.add(l.log_id); AUTO.flash[agentForLog(l)] = Date.now(); });
-    if (AUTO.seen.size > 4000) AUTO.seen = new Set([...AUTO.seen].slice(-2000));
-    $("#auto-log").innerHTML = (logs.logs || []).map(autoLogLine).join("") || `<div class="auto-empty">동작 없음</div>`;
-    $("#auto-log-meta").textContent = `${(logs.logs || []).length}건`;
+    const all = logs.logs || [];                       // 서버는 최신순(DESC)
+    const fresh = all.filter((l) => !AUTO.renderedLogs.has(l.log_id));
+    if (fresh.length) {
+      const box = $("#auto-log");
+      const ph = box.querySelector(".auto-empty"); if (ph) ph.remove();
+      // 오래된 것부터 afterbegin으로 넣으면 최종적으로 최신이 맨 위
+      fresh.slice().reverse().forEach((l) => {
+        AUTO.renderedLogs.add(l.log_id);
+        AUTO.flash[agentForLog(l)] = Date.now();
+        box.insertAdjacentHTML("afterbegin", autoLogLine(l));
+      });
+      while (box.childElementCount > 140) box.removeChild(box.lastElementChild);
+      $("#auto-log-meta").textContent = `${box.childElementCount}건`;
+      if (AUTO.renderedLogs.size > 4000) AUTO.renderedLogs = new Set([...AUTO.renderedLogs].slice(-2000));
+    }
     renderAutoActions(acts.actions || []);
-    renderAgents();
+    updateAgentFlash();
   } catch (_) { /* noop */ }
 }
 
@@ -1216,6 +1234,10 @@ async function selectAutoAction(id) {
 
 async function toggleAuto() {
   const next = !AUTO.on;
+  if (next && !LIVE.running) {
+    showToast({ kind: "error", id: "", message: "‘실시간 수요’를 먼저 ON 한 뒤 자동운영을 시작하세요." });
+    return;
+  }
   updateAutoToggle(next);
   if (next) {
     await fetch("/api/auto-mode/on", { method: "POST" }).catch(() => {});
@@ -1229,7 +1251,7 @@ async function toggleAuto() {
 
 function setupAuto() {
   if (AUTO.booted) return; AUTO.booted = true;
-  renderAgents();
+  buildAgents();
   $("#auto-toggle").addEventListener("click", () => toggleAuto().catch(() => {}));
   $("#auto-runonce").addEventListener("click", async () => {
     $("#auto-runonce").disabled = true;
@@ -1251,12 +1273,19 @@ function setupAuto() {
   });
 }
 
+async function syncLive() {
+  try { const s = await fetch("/realtime/status").then((r) => r.json()); LIVE.running = !!s.running; } catch (_) {}
+}
 function enterAuto() {
   setupAuto();
+  // 로그를 새로 그려 깜빡임/잔재 없이 현재 상태부터 시작
+  AUTO.renderedLogs = new Set();
+  const box = $("#auto-log"); if (box) box.innerHTML = `<div class="auto-empty">동작 없음 — 자동운영을 시작하면 단계별로 표시됩니다.</div>`;
+  syncLive().catch(() => {});
   pollAuto().catch(() => {});
   refreshSimbar().catch(() => {});
   if (AUTO.poll) clearInterval(AUTO.poll);
-  AUTO.poll = setInterval(() => { renderAgents(); pollAuto().catch(() => {}); }, 2000);
+  AUTO.poll = setInterval(() => { updateAgentFlash(); pollAuto().catch(() => {}); }, 1000);
 }
 function leaveAuto() { if (AUTO.poll) { clearInterval(AUTO.poll); AUTO.poll = null; } }
 

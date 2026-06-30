@@ -108,9 +108,9 @@ def loop_status():
 
 @router.get("/blackboard/simulation")
 def simulation_gate():
-    """현재 상태 배치 What-if(DES) 결과 — KPI·과부하 게이트."""
+    """배치 What-if(DES) 게이트 결과(캐시, 논블로킹). 오래되면 백그라운드 갱신."""
     from bb import simulation_agent
-    return simulation_agent.evaluate()
+    return simulation_agent.gate()
 
 
 # ---------- 가용/예약(검증·디버그용) ----------

@@ -11,21 +11,25 @@ from bb.agents import REGISTRY
 from bb.store import ensure_schema, now
 
 
-def run_once(force: bool = False) -> dict:
+def run_once(force: bool = False, step_delay: float | None = None) -> dict:
     """1 사이클: NEW 이벤트 → 에이전트 propose → Action 생성·실행. 실행 중 발생한 체인 이벤트
-    (NEED_PUTAWAY·TASK_CREATED)도 같은 사이클에서 소진(budget·pass 상한)."""
+    (NEED_PUTAWAY·TASK_CREATED)도 같은 사이클에서 소진(budget·pass 상한).
+    step_delay: Action 1건 처리 후 지연(초) — 한 건씩 흘러가는 모습을 눈으로 보이게 함."""
     ensure_schema()
     if not force and not settings.enabled():
         return {"enabled": False, "events": 0, "created": [], "executed": []}
+    if step_delay is None:
+        step_delay = settings.step_delay()
     budget = settings.max_actions_per_cycle()
     out = {"enabled": True, "events": 0, "created": [], "executed": []}
 
-    # 주기 배치 What-if(사이클당 1회) — 처리할 NEW 이벤트가 있을 때만 실행
+    # 배치 What-if 게이트 — 캐시(논블로킹). DES는 백그라운드에서 갱신되어 흐름을 막지 않음.
     sim_gate = {"ok": True, "ran": False, "reason": "시뮬 미사용", "kpis": {}}
     if settings.simulation_required() and events.new_events(limit=1):
-        sim_gate = simulation_agent.evaluate()
-        audit.log("PRECHECK", "OK" if sim_gate["ok"] else "BLOCKED",
-                  agent_name="SimulationAgent", action_type="BATCH_SIMULATION", message=sim_gate["reason"])
+        sim_gate = simulation_agent.gate()
+        if sim_gate.get("ran"):
+            audit.log("PRECHECK", "OK" if sim_gate["ok"] else "BLOCKED",
+                      agent_name="SimulationAgent", action_type="BATCH_SIMULATION", message=sim_gate["reason"])
     out["simulation"] = sim_gate
 
     passes = 0
@@ -65,6 +69,8 @@ def run_once(force: bool = False) -> dict:
                                                     "type": spec["action_type"], "status": r.get("status"),
                                                     "reason": r.get("reason")})
                         budget -= 1
+                        if step_delay > 0:
+                            time.sleep(step_delay)   # 한 건씩 가시화(사람이 흐름을 볼 수 있게)
             events.set_status(ev["event_id"], "PROCESSED")
             out["events"] += 1
     return out
@@ -90,6 +96,7 @@ def start() -> dict:
     global _thread, _running
     if not _running:
         _running = True
+        simulation_agent.kick()   # 첫 배치 시뮬을 백그라운드로 띄움
         _thread = threading.Thread(target=_loop, name="bb-control-loop", daemon=True)
         _thread.start()
     return {"running": _running, "cycle_seconds": settings.cycle_seconds()}

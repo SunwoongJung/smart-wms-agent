@@ -11,6 +11,8 @@ DEFAULTS = {
     "auto_mode_simulation_required": "true",
     "auto_mode_risk_threshold": "0.7",
     "auto_mode_util_block": "0.95",             # 배치 시뮬 팀 가동률 차단 임계
+    "auto_mode_step_delay_seconds": "1.2",      # Action 1건 처리 사이 지연(가시화)
+    "auto_mode_sim_refresh_seconds": "30",      # 시뮬 KPI 캐시 갱신 주기(백그라운드)
 }
 
 
@@ -87,3 +89,17 @@ def util_block() -> float:
         return float(get("auto_mode_util_block", 0.95))
     except (TypeError, ValueError):
         return 0.95
+
+
+def step_delay() -> float:
+    try:
+        return max(0.0, float(get("auto_mode_step_delay_seconds", 1.2)))
+    except (TypeError, ValueError):
+        return 1.2
+
+
+def sim_refresh_seconds() -> int:
+    try:
+        return max(5, int(float(get("auto_mode_sim_refresh_seconds", 30))))
+    except (TypeError, ValueError):
+        return 30
