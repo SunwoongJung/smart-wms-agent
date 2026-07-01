@@ -1169,11 +1169,11 @@ function renderAutoActions(list) {
 
 function simCountdown(s) {
   if (!s || !s.refresh_seconds) return "";
-  if (!s.ts) return ` · <span class="sim-cd">기준치 갱신 중…</span>`;
+  if (!s.ts) return ` · <span class="sim-cd">시뮬레이션 기동중…</span>`;
   const rem = Math.ceil(s.refresh_seconds - (Date.now() / 1000 - s.ts));
   return rem > 0
     ? ` · <span class="sim-cd">기준치 갱신까지 ${rem}s</span>`
-    : ` · <span class="sim-cd">기준치 갱신 중…</span>`;
+    : ` · <span class="sim-cd">시뮬레이션 기동중…</span>`;
 }
 function setSimbar(s) {
   const el = $("#auto-simbar"); if (!el) return;
