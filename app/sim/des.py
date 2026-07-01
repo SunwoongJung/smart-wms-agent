@@ -23,11 +23,31 @@ from sim.forecast import fit_demand, scan_inventory_risk
 from tools.common import q
 
 MIN_PER_DAY = 24 * 60
-WORK_START_H = 9   # 업무 시작 09시 (가용 업무시간 09-18)
+WORK_START_H = 9    # 업무 시작 09시
+WORK_END_H = 18     # 업무 종료 18시 (가용 업무시간 09-18)
+WORK_MIN_PER_DAY = (WORK_END_H - WORK_START_H) * 60   # 540분/일 = 팀 1일 가용 작업시간
 
 
 def _base_date() -> date:
     return date.fromisoformat(settings.base_date)
+
+
+def work_delay(env, minutes: float, metrics: dict):
+    """업무시간(09-18)만 소비하며 minutes(작업분)을 처리한다. 업무시간 외(18시~익일 09시)는
+    건너뛰어 작업이 다음 업무일로 이월된다. 실제 소비한 작업분만 team_busy에 누적
+    (가동률 분모를 업무시간 기준으로 두므로 값이 [0,1]에 자연 수렴)."""
+    remaining = float(minutes)
+    start, end = WORK_START_H * 60, WORK_END_H * 60
+    while remaining > 1e-9:
+        tod = env.now % MIN_PER_DAY            # 하루 중 경과 분(0~1440)
+        if tod < start:
+            yield env.timeout(start - tod); continue          # 오늘 업무시작까지 대기
+        if tod >= end:
+            yield env.timeout(MIN_PER_DAY - tod + start); continue   # 익일 업무시작까지
+        step = min(remaining, end - tod)       # 오늘 남은 업무시간만큼
+        yield env.timeout(step)
+        remaining -= step
+        metrics["team_busy"] += step
 
 
 def _sim_label(minute: float) -> str:
@@ -146,8 +166,7 @@ def _run_once(rep, horizon_days, near_days, scenario, record=False):
         req = teams.request()
         yield req
         t = _sample_time(ptp["INBOUND"], rng) + _sample_time(ptp["STOCKING"], rng)
-        yield env.timeout(t)
-        metrics["team_busy"] += t
+        yield from work_delay(env, t, metrics)   # 업무시간(09-18)만 작업
         teams.release(req)
         zid = sku_zone.get(sku) or _target_zone(products, zones, sku)
         cap = zones[zid]["max_capacity"]
@@ -171,8 +190,7 @@ def _run_once(rep, horizon_days, near_days, scenario, record=False):
         metrics["picking_waits"].append(env.now - t0)
         pick_t = _sample_time(ptp["PICKING"], rng) * (1 + 0.3 * (len(lines) - 1))
         pack_t = _sample_time(ptp["PACKING_SHIP"], rng)
-        yield env.timeout(pick_t)
-        metrics["team_busy"] += pick_t
+        yield from work_delay(env, pick_t, metrics)   # 업무시간(09-18)만 작업
         for sku, qty in lines:  # 재고 소진
             avail = sku_qty.get(sku, 0)
             taken = min(avail, qty)
@@ -185,8 +203,7 @@ def _run_once(rep, horizon_days, near_days, scenario, record=False):
                 if record:
                     events.append({"sim_time": _sim_label(env.now), "event_type": "STOCKOUT",
                                    "detail": {"sku": sku, "short": qty - taken}})
-        yield env.timeout(pack_t)
-        metrics["team_busy"] += pack_t
+        yield from work_delay(env, pack_t, metrics)   # 업무시간(09-18)만 작업
         teams.release(req)
         metrics["orders"] += 1
         if env.now > due_min:
@@ -268,7 +285,7 @@ def _run_once(rep, horizon_days, near_days, scenario, record=False):
         env.process(monitor())
     env.run(until=horizon_min)
 
-    util_team = metrics["team_busy"] / (team_n * horizon_min)
+    util_team = metrics["team_busy"] / (team_n * horizon_days * WORK_MIN_PER_DAY)   # 09-18 가용시간 기준
     out = {
         "shipping_delays": metrics["shipping_delays"],
         "delay_cost": metrics["delay_cost"],
