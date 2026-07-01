@@ -34,6 +34,47 @@ def init_db(reset: bool = False) -> None:
         conn.close()
 
 
+def ensure_row_timestamps() -> None:
+    """모든 사용자 테이블에 created_at/updated_at 컬럼과 자동 채움 트리거를 보장한다(idempotent).
+
+    - created_at: INSERT 시 트리거가 채움(명시값이 있으면 유지 — bb 테이블 등과 충돌 없음).
+    - updated_at: UPDATE 시 트리거가 갱신(SQLite는 기본적으로 재귀 트리거 OFF라 무한루프 없음).
+    기존 행의 created_at은 현재시각으로 1회 백필. 가상(FTS)·시스템 테이블은 제외.
+    """
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT name, sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+        ).fetchall()
+        for r in rows:
+            t, sql = r["name"], (r["sql"] or "").upper()
+            if "VIRTUAL" in sql or "USING FTS" in sql or " WITHOUT ROWID" in sql:
+                continue
+            cols = [c["name"] for c in conn.execute(f'PRAGMA table_info("{t}")').fetchall()]
+            try:
+                if "created_at" not in cols:
+                    conn.execute(f'ALTER TABLE "{t}" ADD COLUMN created_at TEXT')
+                if "updated_at" not in cols:
+                    conn.execute(f'ALTER TABLE "{t}" ADD COLUMN updated_at TEXT')
+                conn.execute(f"UPDATE \"{t}\" SET created_at=datetime('now','localtime') WHERE created_at IS NULL")
+                conn.execute(f'DROP TRIGGER IF EXISTS "trg_{t}_created"')
+                conn.execute(
+                    f'CREATE TRIGGER "trg_{t}_created" AFTER INSERT ON "{t}" '
+                    f"WHEN NEW.created_at IS NULL BEGIN "
+                    f"UPDATE \"{t}\" SET created_at=datetime('now','localtime') WHERE rowid=NEW.rowid; END")
+                # WHEN NEW.updated_at IS OLD.updated_at → 트리거가 스스로를 다시 물지 않음(재귀 방지, 재귀트리거 설정 무관)
+                conn.execute(f'DROP TRIGGER IF EXISTS "trg_{t}_updated"')
+                conn.execute(
+                    f'CREATE TRIGGER "trg_{t}_updated" AFTER UPDATE ON "{t}" '
+                    f"WHEN NEW.updated_at IS OLD.updated_at BEGIN "
+                    f"UPDATE \"{t}\" SET updated_at=datetime('now','localtime') WHERE rowid=NEW.rowid; END")
+            except Exception:
+                continue
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def list_tables() -> list[str]:
     conn = get_connection()
     try:

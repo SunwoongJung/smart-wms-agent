@@ -27,6 +27,9 @@ app = FastAPI(title="Smart WMS Agent API", version="0.1")
 from bb.routes import router as bb_router  # noqa: E402  블랙보드/Auto Mode 라우터
 app.include_router(bb_router)
 
+from db.database import ensure_row_timestamps  # noqa: E402
+ensure_row_timestamps()   # 전 테이블 created_at/updated_at + 자동 채움 트리거 보장
+
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 UNIT_COST = 1000  # 단위당 명목 재고가치(원) — 총 재고 비용 KPI용(예시값)
 
