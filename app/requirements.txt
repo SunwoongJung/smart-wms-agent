@@ -1,4 +1,4 @@
-# Warehouse Ops Orchestration AI — Python dependencies (Phase 1)
+# WOONG AI — Python dependencies (Phase 1)
 # 생성=Claude, 임베딩=OpenAI
 
 # LLM / 임베딩

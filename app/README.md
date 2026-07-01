@@ -1,4 +1,4 @@
-# Warehouse Ops Orchestration AI (app)
+# WOONG AI (app)
 
 WMS 운영자 업무 조수. 메인 기능은 **SimPy DES 기반 창고상황 예측·What-if 시뮬레이션**이며, 모든 결과를 시각화한다.
 

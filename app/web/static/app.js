@@ -1,4 +1,4 @@
-// Warehouse Ops Orchestration AI — SPA (P1~P5)
+// WOONG AI — SPA (P1~P5)
 const $ = (s) => document.querySelector(s);
 let META = { base_date: null };
 let LAST = { result: null, forecast: null, comparison: null, insightTab: "inv", operationKpis: null };
@@ -712,7 +712,7 @@ function appendBubble(role, inner, ctx) {
   const root = document.getElementById(ctx.root); if (root) root.classList.remove("is-empty");
   const wrap = document.createElement("div");
   wrap.className = "msg " + role;
-  const who = role === "user" ? "user" : "ai";
+  const who = role === "user" ? "사용자" : "Woong AI";
   wrap.innerHTML = `<div class="role-tag">${who} :</div><div class="bubble">${inner}</div>`;
   innerEl.appendChild(wrap);
   chatScrollBottom(ctx);

@@ -1,4 +1,4 @@
--- Warehouse Ops Orchestration AI — SQLite schema (docs/04_DATABASE_DESIGN.md 기준)
+-- WOONG AI — SQLite schema (docs/04_DATABASE_DESIGN.md 기준)
 -- 부모 테이블 먼저 생성(FK 순서).
 
 CREATE TABLE IF NOT EXISTS products (
