@@ -1177,6 +1177,14 @@ function simCountdown(s) {
 }
 function setSimbar(s) {
   const el = $("#auto-simbar"); if (!el) return;
+  if (!AUTO.on) {   // 자동운영 OFF면 시뮬레이션 미가동(마지막 기준값만 참고 표시)
+    el.className = "auto-simbar";
+    const k = (s && s.kpis) || {};
+    const ref = (s && s.ran && k.resource_utilization_team != null)
+      ? ` <span class="sim-cd">(마지막 기준 · 가동률 ${Math.round(k.resource_utilization_team * 100)}%)</span>` : "";
+    el.innerHTML = `<span class="sim-ic">🧊</span> 자동운영 OFF — 시뮬레이션 미가동${ref}`;
+    return;
+  }
   if (!s || s.ran === false) {
     el.className = "auto-simbar";
     el.innerHTML = `<span class="sim-ic">🧊</span> 배치 시뮬레이션 — ${s && s.reason ? escapeHtml(s.reason) : "대기"}` + simCountdown(s);
@@ -1218,8 +1226,8 @@ async function pollAuto() {
       fetch("/api/blackboard/actions?limit=40").then((r) => r.json()),
       fetch("/api/blackboard/simulation").then((r) => r.json()).catch(() => null),
     ]);
-    if (sim) setSimbar(sim);
     updateAutoToggle((mode.auto_mode_enabled || "false") === "true");
+    if (sim) setSimbar(sim);
     if ($("#auto-cycle") && document.activeElement !== $("#auto-cycle")) {
       $("#auto-cycle").value = mode.auto_mode_cycle_interval_seconds || 15;
     }

@@ -96,7 +96,9 @@ def gate() -> dict:
     with _lock:
         c = dict(_CACHE)
     age = (time.time() - c["ts"]) if c.get("ts") else None
-    if c["ts"] is None or (age is not None and age > settings.sim_refresh_seconds()):
+    stale = c["ts"] is None or (age is not None and age > settings.sim_refresh_seconds())
+    # 자동운영 ON일 때만 갱신(꺼져 있으면 게이트 결과가 쓰이지 않으므로 DES 낭비 금지)
+    if stale and settings.enabled():
         _async_refresh()
     return _decorate(c)
 
