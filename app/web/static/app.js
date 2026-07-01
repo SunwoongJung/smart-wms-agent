@@ -1184,11 +1184,21 @@ function setSimbar(s) {
   }
   const k = s.kpis || {};
   const util = k.resource_utilization_team != null ? Math.round(k.resource_utilization_team * 100) + "%" : "—";
-  const zone = s.worst_zone_occ != null ? Math.round(s.worst_zone_occ * 100) + "%" : "—";
+  // 공간: 임계 이상(과부하)인 존을 모두 표시. 없으면 최대 점유 존 하나만.
+  const zb = s.zone_block != null ? s.zone_block : 1;
+  const over = Object.entries(s.zone_peak || {}).filter(([, o]) => o >= zb).sort((a, b) => b[1] - a[1]);
+  let spaceHtml;
+  if (over.length) {
+    const list = over.map(([z, o]) => `${escapeHtml(z)} ${Math.round(o * 100)}%`).join(" · ");
+    spaceHtml = `공간 <b class="over">과부하 ${over.length}존</b> (${list})`;
+  } else {
+    const zone = s.worst_zone_occ != null ? Math.round(s.worst_zone_occ * 100) + "%" : "—";
+    spaceHtml = `공간(최대존) <b>${zone}</b>${s.worst_zone ? " " + escapeHtml(s.worst_zone) : ""} 정상`;
+  }
   el.className = "auto-simbar " + (s.ok ? "ok" : "blk");
   el.innerHTML = `<span class="sim-ic">🧊</span> 배치 시뮬레이션 · `
     + `노동(가동률) <b class="${s.labor_ok ? "" : "over"}">${util}</b> ${s.labor_ok ? "정상" : "과부하"} · `
-    + `공간(최대존) <b class="${s.space_ok ? "" : "over"}">${zone}</b>${s.worst_zone ? " " + escapeHtml(s.worst_zone) : ""} ${s.space_ok ? "정상" : "과부하"} · `
+    + spaceHtml + ` · `
     + `출고지연 ${fmtNum(k.shipping_delay_count, 0)}건`
     + simCountdown(s);
 }
