@@ -113,6 +113,13 @@ def simulation_gate():
     return simulation_agent.gate()
 
 
+@router.post("/blackboard/simulation/run")
+def simulation_run():
+    """지금 즉시 시뮬레이션 1회 실행(블로킹, 자동운영 OFF여도 강제). 결과 반환."""
+    from bb import simulation_agent
+    return simulation_agent.evaluate()
+
+
 # ---------- 가용/예약(검증·디버그용) ----------
 @router.get("/blackboard/availability/{sku}")
 def availability(sku: str):

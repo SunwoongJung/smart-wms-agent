@@ -1101,7 +1101,7 @@ const AGENTS = [
   { id: "ExplanationAgent", label: "설명", emoji: "💬", kind: "inf" },
 ];
 const AGENT_BY_ID = Object.fromEntries(AGENTS.map((a) => [a.id, a]));
-const AUTO = { on: false, seen: new Set(), flash: {}, poll: null, actions: [], booted: false, renderedLogs: new Set() };
+const AUTO = { on: false, seen: new Set(), flash: {}, poll: null, actions: [], booted: false, renderedLogs: new Set(), manualSim: null };
 const PHASE_LABEL = {
   EVENT_RECEIVED: "이벤트 수신", ACTION_CREATED: "Action 생성", POLICY_CHECK: "정책 검토",
   PRECHECK: "사전검증", LOCK_ACQUIRED: "락 확보", EXECUTE: "실행", POSTCHECK: "사후검증", FINISHED: "완료",
@@ -1175,9 +1175,31 @@ function simCountdown(s) {
     ? ` · <span class="sim-cd">기준치 갱신까지 ${rem}s</span>`
     : ` · <span class="sim-cd">시뮬레이션 기동중…</span>`;
 }
+function simBody(s) {   // 노동/공간/출고지연 KPI 문자열(카운트다운 제외)
+  const k = s.kpis || {};
+  const util = k.resource_utilization_team != null ? Math.round(k.resource_utilization_team * 100) + "%" : "—";
+  const zb = s.zone_block != null ? s.zone_block : 1;
+  const over = Object.entries(s.zone_peak || {}).filter(([, o]) => o >= zb).sort((a, b) => b[1] - a[1]);
+  let spaceHtml;
+  if (over.length) {
+    const list = over.map(([z, o]) => `${escapeHtml(z)} ${Math.round(o * 100)}%`).join(" · ");
+    spaceHtml = `공간 <b class="over">과부하 ${over.length}존</b> (${list})`;
+  } else {
+    const zone = s.worst_zone_occ != null ? Math.round(s.worst_zone_occ * 100) + "%" : "—";
+    spaceHtml = `공간(최대존) <b>${zone}</b>${s.worst_zone ? " " + escapeHtml(s.worst_zone) : ""} 정상`;
+  }
+  return `노동(가동률) <b class="${s.labor_ok ? "" : "over"}">${util}</b> ${s.labor_ok ? "정상" : "과부하"} · `
+    + spaceHtml + ` · 출고지연 ${fmtNum(k.shipping_delay_count, 0)}건`;
+}
 function setSimbar(s) {
   const el = $("#auto-simbar"); if (!el) return;
-  if (!AUTO.on) {   // 자동운영 OFF면 시뮬레이션 미가동(마지막 기준값만 참고 표시)
+  if (!AUTO.on) {   // OFF면 미가동 — 단, 수동 실행 결과가 최근(45초)이면 그걸 보여줌
+    const m = AUTO.manualSim;
+    if (m && m.s && m.s.ran && Date.now() - m.at < 45000) {
+      el.className = "auto-simbar " + (m.s.ok ? "ok" : "blk");
+      el.innerHTML = `<span class="sim-ic">🧊</span> ${simBody(m.s)} <span class="sim-cd">(수동 실행)</span>`;
+      return;
+    }
     el.className = "auto-simbar";
     const k = (s && s.kpis) || {};
     const ref = (s && s.ran && k.resource_utilization_team != null)
@@ -1190,25 +1212,8 @@ function setSimbar(s) {
     el.innerHTML = `<span class="sim-ic">🧊</span> 배치 시뮬레이션 — ${s && s.reason ? escapeHtml(s.reason) : "대기"}` + simCountdown(s);
     return;
   }
-  const k = s.kpis || {};
-  const util = k.resource_utilization_team != null ? Math.round(k.resource_utilization_team * 100) + "%" : "—";
-  // 공간: 임계 이상(과부하)인 존을 모두 표시. 없으면 최대 점유 존 하나만.
-  const zb = s.zone_block != null ? s.zone_block : 1;
-  const over = Object.entries(s.zone_peak || {}).filter(([, o]) => o >= zb).sort((a, b) => b[1] - a[1]);
-  let spaceHtml;
-  if (over.length) {
-    const list = over.map(([z, o]) => `${escapeHtml(z)} ${Math.round(o * 100)}%`).join(" · ");
-    spaceHtml = `공간 <b class="over">과부하 ${over.length}존</b> (${list})`;
-  } else {
-    const zone = s.worst_zone_occ != null ? Math.round(s.worst_zone_occ * 100) + "%" : "—";
-    spaceHtml = `공간(최대존) <b>${zone}</b>${s.worst_zone ? " " + escapeHtml(s.worst_zone) : ""} 정상`;
-  }
   el.className = "auto-simbar " + (s.ok ? "ok" : "blk");
-  el.innerHTML = `<span class="sim-ic">🧊</span> 배치 시뮬레이션 · `
-    + `노동(가동률) <b class="${s.labor_ok ? "" : "over"}">${util}</b> ${s.labor_ok ? "정상" : "과부하"} · `
-    + spaceHtml + ` · `
-    + `출고지연 ${fmtNum(k.shipping_delay_count, 0)}건`
-    + simCountdown(s);
+  el.innerHTML = `<span class="sim-ic">🧊</span> 배치 시뮬레이션 · ${simBody(s)}${simCountdown(s)}`;
 }
 
 function updateAutoToggle(enabled) {
@@ -1297,6 +1302,16 @@ function setupAuto() {
     $("#auto-runonce").disabled = true;
     try { await fetch("/api/blackboard/run-once?force=true", { method: "POST" }); await refreshSimbar(); await pollAuto(); }
     finally { $("#auto-runonce").disabled = false; }
+  });
+  $("#auto-simrun").addEventListener("click", async () => {
+    const btn = $("#auto-simrun"); btn.disabled = true;
+    const el = $("#auto-simbar"); if (el) { el.className = "auto-simbar"; el.innerHTML = `<span class="sim-ic">🧊</span> 시뮬레이션 기동중…`; }
+    try {
+      const s = await fetch("/api/blackboard/simulation/run", { method: "POST" }).then((r) => r.json());
+      AUTO.manualSim = { s, at: Date.now() };
+      setSimbar(s);
+    } catch (_) { if (el) el.innerHTML = `<span class="sim-ic">🧊</span> 시뮬레이션 실행 실패`; }
+    finally { btn.disabled = false; }
   });
   $("#auto-cycle").addEventListener("change", (e) => {
     const v = Math.max(2, Math.min(600, Number(e.target.value) || 15));
