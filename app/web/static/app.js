@@ -184,7 +184,7 @@ function renderKpiDashboard() {
   renderSimKpiDashboard();
 }
 
-let DATA = { dataset: "snapshot" };
+let DATA = { dataset: "snapshot", poll: null };
 
 function renderDatasetTabs() {
   const bar = $("#dataset-tabs"); if (!bar) return;
@@ -238,7 +238,8 @@ function renderRawTable(data) {
   const meta = DATASET_META[data.dataset] || [data.dataset, ""];
   $("#data-table-title").textContent = meta[0];
   const desc = $("#data-table-desc"); if (desc) desc.textContent = meta[1] || "";
-  $("#data-table-meta").textContent = `${data.total}건`;
+  const liveOn = DATA.poll && LIVE.running && data.dataset !== "snapshot";
+  $("#data-table-meta").textContent = `${data.total}건${liveOn ? " · 🔴 실시간 자동갱신(3초)" : ""}`;
   if (!data.rows || !data.rows.length) {
     $("#raw-data-table").innerHTML = `<div class="raw-empty">조회 결과가 없습니다.</div>`;
     return;
@@ -268,6 +269,15 @@ async function refreshDataBrowser() {
   await loadDataSnapshot().catch(() => {});
   await loadRawData().catch(() => {});
 }
+
+// 데이터 탭: 실시간 수요 ON일 때 현재 표를 3초마다 자동 갱신(새 행이 최신순으로 위에 쌓임)
+function enterData() {
+  if (DATA.poll) clearInterval(DATA.poll);
+  DATA.poll = setInterval(() => {
+    if (LIVE.running) { loadRawData().catch(() => {}); loadDataSnapshot().catch(() => {}); }
+  }, 3000);
+}
+function leaveData() { if (DATA.poll) { clearInterval(DATA.poll); DATA.poll = null; } }
 
 /* ---------- 자체 SVG 차트 ---------- */
 function svgLine(el, cfg) {
@@ -526,9 +536,11 @@ function activateTab(name) {
   document.querySelectorAll(".tab-panel").forEach((p) => p.classList.add("hidden"));
   const panel = $("#panel-" + name); if (panel) panel.classList.remove("hidden");
   if (name !== "auto") leaveAuto();
+  if (name !== "data") leaveData();
   if (name === "approval") loadApproval().catch(() => {});
   if (name === "trace") { loadTraces().catch(() => {}); loadSessionInto(TRACE_CTX).catch(() => {}); }
   if (name === "auto") enterAuto();
+  if (name === "data") { refreshDataBrowser().catch(() => {}); enterData(); }
 }
 function setupTabs() {
   document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => activateTab(t.dataset.tab)));
