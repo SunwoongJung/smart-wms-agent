@@ -1,6 +1,6 @@
 # 02_AGENT_ARCHITECTURE.md
 
-# Smart WMS Agent Architecture
+# WOONG AI Architecture
 
 ## 1. 목적
 LangGraph 기반 Agent Architecture를 정의한다. 본 Agent는 창고 운영 데이터를 분석하고 업무 우선순위를 추천하며, 상태 변경 전 승인 절차를 수행한다.
@@ -196,7 +196,7 @@ System Prompt에 반영할 Agent 정체성 정의이다.
 
 | 항목 | 정의 |
 |---|---|
-| Agent 이름 | Smart WMS Agent |
+| Agent 이름 | WOONG AI |
 | 주요 역할 | 창고 운영 Copilot. 업무 intent 분류, Tool 실행 결과 해석, 정책·산식 기반 근거 설명, Draft 생성과 승인 요청 |
 | 핵심 목표 | 운영자가 당일 우선 처리할 업무를 빠짐없이, 근거와 함께 파악하고 안전하게 실행하도록 지원 |
 | 사용 LLM | OpenAI 단일(회사 Azure OpenAI 호환 게이트웨이). 생성/추론/Tool: `gpt-5.4`(Response Generator), 라우터·파라미터 추출: `gpt-4.1-mini`(경량). 임베딩: `text-embedding-3-small`(한국어 극대화 필요 시 `-large`) — RAG 검색 전용. AzureOpenAI 클라이언트(app/llm.py), model-agnostic 인터페이스 |

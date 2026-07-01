@@ -2,7 +2,7 @@ const pptxgen = require("pptxgenjs");
 
 const pres = new pptxgen();
 pres.layout = "LAYOUT_16x9"; // 10 x 5.625 in
-pres.title = "Smart WMS Agent 기획 요약";
+pres.title = "WOONG AI 기획 요약";
 
 // ---- palette (Charcoal + Teal, very simple) ----
 const DARK = "263238";   // title/closing bg
@@ -29,7 +29,7 @@ function slideTitle(slide, label, title) {
   s.background = { color: DARK };
 
   s.addText("WAREHOUSE OPERATIONS COPILOT · POC", { x: 0.7, y: 1.35, w: 8.6, h: 0.35, fontFace: F, fontSize: 13, bold: true, color: "7FD1CD", charSpacing: 3, margin: 0 });
-  s.addText("Smart WMS Agent", { x: 0.7, y: 1.75, w: 8.6, h: 1.0, fontFace: F, fontSize: 48, bold: true, color: WHITE, margin: 0 });
+  s.addText("WOONG AI", { x: 0.7, y: 1.75, w: 8.6, h: 1.0, fontFace: F, fontSize: 48, bold: true, color: WHITE, margin: 0 });
   s.addText("자연어로 묻고 · 데이터로 계산하고 · 승인으로 실행한다", { x: 0.7, y: 2.85, w: 8.6, h: 0.45, fontFace: F, fontSize: 17, color: "CFD8DC", margin: 0 });
 
   // simple chat bubble visual
@@ -326,7 +326,7 @@ function slideTitle(slide, label, title) {
   });
 
   s.addText("이후 확장 — Hybrid Search · Reranker · PostgreSQL 전환 · 실제 WMS API 연동", { x: 0.5, y: 4.45, w: 9.0, h: 0.35, fontFace: F, fontSize: 12, color: "90A4AE", align: "center", margin: 0 });
-  s.addText("Smart WMS Agent", { x: 0.5, y: 5.05, w: 9.0, h: 0.3, fontFace: F, fontSize: 11, bold: true, color: "7FD1CD", align: "center", margin: 0 });
+  s.addText("WOONG AI", { x: 0.5, y: 5.05, w: 9.0, h: 0.3, fontFace: F, fontSize: 11, bold: true, color: "7FD1CD", align: "center", margin: 0 });
 }
 
 // #######################################################
@@ -370,7 +370,7 @@ function codeCard(s, x, y, w, h, head, code) {
     s.addText(String(i + 1), { x: 0.7, y: y + 0.02, w: 0.32, h: 0.32, fontFace: F, fontSize: 12, bold: true, color: WHITE, align: "center", valign: "middle", margin: 0 });
     s.addText(t, { x: 1.18, y: y - 0.03, w: 8.0, h: 0.42, fontFace: F, fontSize: 13, color: "ECEFF1", valign: "middle", margin: 0 });
   });
-  s.addText("Smart WMS Agent", { x: 0.7, y: 5.28, w: 8.6, h: 0.3, fontFace: F, fontSize: 11, bold: true, color: "7FD1CD", margin: 0 });
+  s.addText("WOONG AI", { x: 0.7, y: 5.28, w: 8.6, h: 0.3, fontFace: F, fontSize: 11, bold: true, color: "7FD1CD", margin: 0 });
 }
 
 // =======================================================
@@ -650,7 +650,7 @@ function codeCard(s, x, y, w, h, head, code) {
     s.addText(String(i + 1), { x: 0.7, y: y + 0.02, w: 0.3, h: 0.3, fontFace: F, fontSize: 12, bold: true, color: WHITE, align: "center", valign: "middle", margin: 0 });
     s.addText(t, { x: 1.16, y: y - 0.04, w: 8.1, h: 0.4, fontFace: F, fontSize: 12.5, color: "ECEFF1", valign: "middle", margin: 0 });
   });
-  s.addText("Smart WMS Agent · Blackboard Auto-Execution Layer", { x: 0.7, y: 5.3, w: 8.6, h: 0.3, fontFace: F, fontSize: 11, bold: true, color: "7FD1CD", margin: 0 });
+  s.addText("WOONG AI · Blackboard Auto-Execution Layer", { x: 0.7, y: 5.3, w: 8.6, h: 0.3, fontFace: F, fontSize: 11, bold: true, color: "7FD1CD", margin: 0 });
 }
 
 // =======================================================
