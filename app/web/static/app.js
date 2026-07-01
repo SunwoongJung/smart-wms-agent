@@ -1174,7 +1174,7 @@ function setSimbar(s) {
   const util = k.resource_utilization_team != null ? Math.round(k.resource_utilization_team * 100) + "%" : "—";
   const zone = s.worst_zone_occ != null ? Math.round(s.worst_zone_occ * 100) + "%" : "—";
   el.className = "auto-simbar " + (s.ok ? "ok" : "blk");
-  el.innerHTML = `<span class="sim-ic">🧊</span> 배치 시뮬 · `
+  el.innerHTML = `<span class="sim-ic">🧊</span> 배치 시뮬레이션 · `
     + `노동(가동률) <b class="${s.labor_ok ? "" : "over"}">${util}</b> ${s.labor_ok ? "정상" : "과부하"} · `
     + `공간(최대존) <b class="${s.space_ok ? "" : "over"}">${zone}</b>${s.worst_zone ? " " + escapeHtml(s.worst_zone) : ""} ${s.space_ok ? "정상" : "과부하"} · `
     + `출고지연 ${fmtNum(k.shipping_delay_count, 0)}건`;
