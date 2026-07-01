@@ -1167,9 +1167,21 @@ function renderAutoActions(list) {
   }).join("") : `<div class="auto-empty">아직 Action이 없습니다.</div>`;
 }
 
+function simCountdown(s) {
+  if (!s || !s.refresh_seconds) return "";
+  if (!s.ts) return ` · <span class="sim-cd">기준치 갱신 중…</span>`;
+  const rem = Math.ceil(s.refresh_seconds - (Date.now() / 1000 - s.ts));
+  return rem > 0
+    ? ` · <span class="sim-cd">기준치 갱신까지 ${rem}s</span>`
+    : ` · <span class="sim-cd">기준치 갱신 중…</span>`;
+}
 function setSimbar(s) {
   const el = $("#auto-simbar"); if (!el) return;
-  if (!s || s.ran === false) { el.className = "auto-simbar"; el.innerHTML = `<span class="sim-ic">🧊</span> 배치 시뮬레이션 — ${s && s.reason ? escapeHtml(s.reason) : "대기"}`; return; }
+  if (!s || s.ran === false) {
+    el.className = "auto-simbar";
+    el.innerHTML = `<span class="sim-ic">🧊</span> 배치 시뮬레이션 — ${s && s.reason ? escapeHtml(s.reason) : "대기"}` + simCountdown(s);
+    return;
+  }
   const k = s.kpis || {};
   const util = k.resource_utilization_team != null ? Math.round(k.resource_utilization_team * 100) + "%" : "—";
   const zone = s.worst_zone_occ != null ? Math.round(s.worst_zone_occ * 100) + "%" : "—";
@@ -1177,7 +1189,8 @@ function setSimbar(s) {
   el.innerHTML = `<span class="sim-ic">🧊</span> 배치 시뮬레이션 · `
     + `노동(가동률) <b class="${s.labor_ok ? "" : "over"}">${util}</b> ${s.labor_ok ? "정상" : "과부하"} · `
     + `공간(최대존) <b class="${s.space_ok ? "" : "over"}">${zone}</b>${s.worst_zone ? " " + escapeHtml(s.worst_zone) : ""} ${s.space_ok ? "정상" : "과부하"} · `
-    + `출고지연 ${fmtNum(k.shipping_delay_count, 0)}건`;
+    + `출고지연 ${fmtNum(k.shipping_delay_count, 0)}건`
+    + simCountdown(s);
 }
 
 function updateAutoToggle(enabled) {
@@ -1189,11 +1202,13 @@ function updateAutoToggle(enabled) {
 
 async function pollAuto() {
   try {
-    const [mode, logs, acts] = await Promise.all([
+    const [mode, logs, acts, sim] = await Promise.all([
       fetch("/api/auto-mode").then((r) => r.json()),
       fetch("/api/blackboard/audit-logs?limit=60").then((r) => r.json()),
       fetch("/api/blackboard/actions?limit=40").then((r) => r.json()),
+      fetch("/api/blackboard/simulation").then((r) => r.json()).catch(() => null),
     ]);
+    if (sim) setSimbar(sim);
     updateAutoToggle((mode.auto_mode_enabled || "false") === "true");
     if ($("#auto-cycle") && document.activeElement !== $("#auto-cycle")) {
       $("#auto-cycle").value = mode.auto_mode_cycle_interval_seconds || 15;

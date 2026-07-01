@@ -389,6 +389,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--f
 .auto-simbar.blk { background: #fef3f1; border-color: #f4c9c2; }
 .auto-simbar .sim-ic { margin-right: 4px; }
 .auto-simbar b.over { color: var(--red); }
+.auto-simbar .sim-cd { color: var(--ink-sub); font-variant-numeric: tabular-nums; }
 
 .auto-settings { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin: 0 0 14px; padding: 9px 14px; border: 1px dashed var(--line); border-radius: 10px; background: #fafcff; }
 .auto-settings .as-title { font-size: 12px; font-weight: 700; color: var(--ink-sub); }

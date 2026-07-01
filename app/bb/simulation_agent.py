@@ -64,6 +64,7 @@ def _decorate(c: dict) -> dict:
     c["ok"] = c["labor_ok"] and c["space_ok"]
     c["util_block"], c["zone_block"] = ub, zb
     c["worst_zone"], c["worst_zone_occ"] = worst
+    c["refresh_seconds"] = settings.sim_refresh_seconds()   # 다음 갱신 카운트다운용
     if not c.get("ran"):
         c["reason"] = c.get("error") and f"시뮬 생략(오류: {c['error']})" or "시뮬 준비 중"
     else:
