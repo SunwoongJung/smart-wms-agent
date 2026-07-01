@@ -12,8 +12,8 @@ from sim import des, whatif  # noqa: E402
 from tools import drafts, lookups  # noqa: E402
 from ui import charts  # noqa: E402
 
-st.set_page_config(page_title="Smart WMS Agent", layout="wide")
-st.title("📦 Smart WMS Agent")
+st.set_page_config(page_title="Warehouse Ops Orchestration AI", layout="wide")
+st.title("📦 Warehouse Ops Orchestration AI")
 
 PAGE = st.sidebar.radio("메뉴", ["Agent Chat", "KPI Dashboard", "Warehouse Simulation", "Approval"])
 

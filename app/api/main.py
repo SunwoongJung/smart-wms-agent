@@ -22,7 +22,7 @@ from sim import des, forecast, versions, whatif
 from tools import drafts, lookups, picking, stocking
 from tools.common import q
 
-app = FastAPI(title="Smart WMS Agent API", version="0.1")
+app = FastAPI(title="Warehouse Ops Orchestration AI API", version="0.1")
 
 from bb.routes import router as bb_router  # noqa: E402  블랙보드/Auto Mode 라우터
 app.include_router(bb_router)

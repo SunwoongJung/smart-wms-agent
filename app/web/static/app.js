@@ -1,4 +1,4 @@
-// Smart WMS Agent — SPA (P1~P5)
+// Warehouse Ops Orchestration AI — SPA (P1~P5)
 const $ = (s) => document.querySelector(s);
 let META = { base_date: null };
 let LAST = { result: null, forecast: null, comparison: null, insightTab: "inv", operationKpis: null };
