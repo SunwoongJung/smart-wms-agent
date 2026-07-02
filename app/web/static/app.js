@@ -1,7 +1,7 @@
 // WOONG AI — SPA (P1~P5)
 const $ = (s) => document.querySelector(s);
 let META = { base_date: null };
-let LAST = { result: null, forecast: null, comparison: null, insightTab: "inv", operationKpis: null };
+let LAST = { result: null, forecast: null, comparison: null, insightTab: "inv", kpiDashboard: null, kpiTargets: null };
 let CHAT = { sessionId: null, sessions: [], filter: "" };
 
 const kpi = (res, name) => (res.kpis || []).find((k) => k.kpi_name === name) || {};
@@ -85,103 +85,122 @@ function renderKpis(res, comparison, invValue) {
       <div class="kpi-val">${c.val}<span class="unit">${c.unit}</span></div>${c.delta}</div>`).join("");
 }
 
-function opKpi(name) { return ((LAST.operationKpis && LAST.operationKpis.kpis) || []).find((x) => x.name === name) || {}; }
 function pct(v, d = 1) { return v == null ? "—" : (Number(v) * 100).toFixed(d) + "%"; }
-function metric(label, value, note = "") {
-  return `<div class="metric"><div class="metric-label">${label}</div><div class="metric-value">${value}</div>${note ? `<div class="metric-note">${note}</div>` : ""}</div>`;
+function fmtDuration(sec) {
+  if (sec == null) return "—";
+  sec = Math.max(0, Math.round(Number(sec)));
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+  const parts = [];
+  if (h) parts.push(`${h}시간`);
+  if (m) parts.push(`${m}분`);
+  parts.push(`${s}초`);
+  return parts.join(" ");
+}
+
+async function loadKpiTargets() {
+  LAST.kpiTargets = await fetch("/kpi/targets").then((x) => x.json()).catch(() => ({}));
+  const zi = $("#target-zone-occupancy"), ui = $("#target-utilization");
+  if (zi && document.activeElement !== zi) zi.value = Math.round((LAST.kpiTargets.kpi_target_zone_occupancy ?? 0.8) * 100);
+  if (ui && document.activeElement !== ui) ui.value = Math.round((LAST.kpiTargets.kpi_target_utilization ?? 0.9) * 100);
+  return LAST.kpiTargets;
+}
+
+async function saveKpiTarget(key, pctValue) {
+  await fetch("/kpi/targets", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ key, value: Math.max(0, Math.min(100, Number(pctValue) || 0)) / 100 }),
+  }).catch(() => {});
+  await loadKpiTargets();
+  await loadOperationKpis();
+  await loadUtilizationTrend();
 }
 
 async function loadOperationKpis() {
-  const body = { kpis: ["zone_occupancy", "saturated_zone_count", "safety_stock_below_count", "stocking_completion_rate", "expected_shortage_count", "dead_stock_count", "replenishment_needed_count"] };
-  LAST.operationKpis = await fetch("/kpi", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then((x) => x.json());
+  LAST.kpiDashboard = await fetch("/kpi/dashboard").then((x) => x.json()).catch(() => null);
   renderKpiDashboard();
-  return LAST.operationKpis;
+  return LAST.kpiDashboard;
 }
 
 function renderOpsKpis() {
-  const zones = opKpi("zone_occupancy").value || [];
-  const worst = zones.slice().sort((a, b) => Number(b.occupancy || 0) - Number(a.occupancy || 0))[0];
-  const saturated = opKpi("saturated_zone_count");
-  const safety = opKpi("safety_stock_below_count");
-  const stocking = opKpi("stocking_completion_rate");
-  const shortage = opKpi("expected_shortage_count");
-  const dead = opKpi("dead_stock_count");
-  const replenish = opKpi("replenishment_needed_count");
+  const d = LAST.kpiDashboard; if (!d) return;
+  const over = d.zone_over_target_list || [];
   $("#ops-kpi-row").innerHTML = [
-    { ico: "▦", label: kpiLabel("zone_occupancy"), val: worst ? pct(worst.occupancy) : "—", delta: `<span class="kpi-delta flat">${worst ? worst.zone_id : "데이터 없음"}</span>` },
-    { ico: "!", label: kpiLabel("saturated_zone_count"), val: saturated.value ?? "—", unit: "개", delta: `<span class="kpi-delta flat">점유율 90% 초과</span>` },
-    { ico: "↓", label: kpiLabel("safety_stock_below_count"), val: safety.value ?? "—", unit: "개", delta: `<span class="kpi-delta flat">현재 재고 기준</span>` },
-    { ico: "✓", label: kpiLabel("stocking_completion_rate"), val: pct(stocking.value), unit: "", delta: `<span class="kpi-delta flat">STOCKED / 입고 대상</span>` },
-    { ico: "⚠", label: kpiLabel("expected_shortage_count"), val: shortage.value ?? "—", unit: "건", delta: `<span class="kpi-delta ${shortage.value ? "up" : "flat"}">가용재고 기준 할당</span>` },
-    { ico: "🐌", label: kpiLabel("dead_stock_count"), val: dead.value ?? "—", unit: "개", delta: `<span class="kpi-delta ${dead.value ? "up" : "flat"}">저회전·임박·무동</span>` },
-    { ico: "🔁", label: kpiLabel("replenishment_needed_count"), val: replenish.value ?? "—", unit: "개", delta: `<span class="kpi-delta ${replenish.value ? "up" : "flat"}">피킹면 보충 대상</span>` },
+    { ico: "▦", label: "Zone 점유율", val: pct(d.zone_occupancy_avg), delta: `<span class="kpi-delta flat">목표 ${pct(d.zone_occupancy_target)}</span>` },
+    { ico: "👥", label: "작업팀 가동률", val: pct(d.team_utilization), delta: `<span class="kpi-delta flat">목표 ${pct(d.team_utilization_target)}</span>` },
+    { ico: "🕐", label: "출고지연 건수", val: d.shipping_delay_count ?? "—", unit: "건", delta: `<span class="kpi-delta ${d.shipping_delay_count ? "up" : "flat"}">목표 0건</span>` },
+    { ico: "📦", label: "적치지연 건수", val: d.putaway_delay_count ?? "—", unit: "건", delta: `<span class="kpi-delta ${d.putaway_delay_count ? "up" : "flat"}">목표 0건</span>` },
+    { ico: "⏱", label: "피킹 대기 시간", val: fmtDuration(d.picking_wait_seconds), delta: `<span class="kpi-delta flat">${d.picking_wait_sample ? `실측 ${d.picking_wait_sample}건 평균` : "실측 데이터 없음"}${d.picking_wait_waiting_now ? ` · 대기중 ${d.picking_wait_waiting_now}건` : ""}</span>` },
+    { ico: "!", label: "목표량 초과 Zone 수", val: d.zone_over_target_count ?? "—", unit: "개", delta: `<span class="kpi-delta flat">${over.length ? over.join(", ") : "없음"}</span>` },
+    { ico: "🚫", label: "품절 SKU 수", val: d.out_of_stock_count ?? "—", unit: "개", delta: `<span class="kpi-delta ${d.out_of_stock_count ? "up" : "flat"}">재고 0 (수요 있음)</span>` },
+    { ico: "⏳", label: "1주 내 소진 예상 재고", val: d.stockout_within_week_count ?? "—", unit: "건", delta: `<span class="kpi-delta flat">재고>0 · 목록은 하단 카드</span>` },
+    { ico: "💰", label: "재고금액", val: d.inventory_value != null ? "₩" + (d.inventory_value / 1e6).toFixed(1) + "M" : "—", delta: `<span class="kpi-delta flat">기준일 ${d.reference_date || "—"}</span>` },
   ].map((c) => `
     <div class="kpi"><div class="kpi-top"><span class="kpi-ico">${c.ico}</span>${c.label}</div>
       <div class="kpi-val">${c.val}<span class="unit">${c.unit || ""}</span></div>${c.delta}</div>`).join("");
 
+  const zones = d.zone_occupancy_list || [];
   if (!zones.length) {
     $("#zone-kpi-chart").innerHTML = `<div class="kpi-empty">Zone 점유율 데이터 없음</div>`;
   } else {
     svgBars($("#zone-kpi-chart"), zones.map((z) => ({
       label: z.zone_id,
-      bars: [{ name: "점유율", value: Math.round(Number(z.occupancy || 0) * 100), color: Number(z.occupancy || 0) > 0.9 ? "#e1483b" : "#2f6bff" }],
-    })));
+      bars: [{ name: "점유율", value: Math.round(Number(z.occupancy || 0) * 100), color: Number(z.occupancy || 0) > d.zone_occupancy_target ? "#e1483b" : "#2f6bff" }],
+    })), { hline: { y: Math.round(d.zone_occupancy_target * 100), label: "목표", color: "#e1483b" } });
   }
 
-  $("#ops-kpi-table").innerHTML = `
-    <table><thead><tr><th>KPI</th><th>값</th><th>설명</th></tr></thead><tbody>
-      <tr><td>${kpiLabel("zone_occupancy")}</td><td>${zones.map((z) => `${z.zone_id} ${pct(z.occupancy)}`).join("<br>") || "—"}</td><td>${kpiDesc("zone_occupancy")}</td></tr>
-      <tr><td>${kpiLabel("saturated_zone_count")}</td><td class="num">${saturated.value ?? "—"}</td><td>${kpiDesc("saturated_zone_count")}</td></tr>
-      <tr><td>${kpiLabel("safety_stock_below_count")}</td><td class="num">${safety.value ?? "—"}</td><td>${kpiDesc("safety_stock_below_count")}</td></tr>
-      <tr><td>${kpiLabel("stocking_completion_rate")}</td><td class="num">${pct(stocking.value)}</td><td>${kpiDesc("stocking_completion_rate")}</td></tr>
-      <tr><td>${kpiLabel("expected_shortage_count")}</td><td class="num">${shortage.value ?? "—"}</td><td>${kpiDesc("expected_shortage_count")}</td></tr>
-      <tr><td>${kpiLabel("dead_stock_count")}</td><td class="num">${dead.value ?? "—"}</td><td>${kpiDesc("dead_stock_count")}</td></tr>
-      <tr><td>${kpiLabel("replenishment_needed_count")}</td><td class="num">${replenish.value ?? "—"}</td><td>${kpiDesc("replenishment_needed_count")}</td></tr>
-    </tbody></table>`;
+  renderStockoutList(d);
 }
 
-function renderSimKpiDashboard() {
-  const r = LAST.result;
-  if (!r || !r.kpis) {
-    $("#sim-kpi-grid").innerHTML = `<div class="kpi-empty">시뮬레이션 실행 후 표시됩니다.</div>`;
-    $("#sim-kpi-table").innerHTML = `<div class="kpi-empty">시뮬레이션 실행 후 표시됩니다.</div>`;
-    return;
-  }
-  const sd = kpi(r, "shipping_delay_count");
-  const pw = kpi(r, "picking_wait_minutes");
-  const ut = kpi(r, "resource_utilization_team");
-  const zoneRows = (r.kpis || []).filter((x) => x.kpi_name === "zone_max_occupancy");
-  const worstZone = zoneRows.slice().sort((a, b) => Number(b.p90 || b.mean || 0) - Number(a.p90 || a.mean || 0))[0];
-  const so = earliestStockout(r);
-  $("#sim-kpi-grid").innerHTML = [
-    metric(kpiLabel("shipping_delay_count"), fmtNum(sd.mean, 2), `평균 · 지연 발생확률 ${pct(sd.occurrence_prob)}`),
-    metric(kpiLabel("picking_wait_minutes"), fmtNum(pw.p90, 1), "P90 기준"),
-    metric(kpiLabel("resource_utilization_team"), pct(ut.mean), "평균 가동률"),
-    metric(kpiLabel("zone_max_occupancy"), worstZone ? pct(worstZone.p90 ?? worstZone.mean) : "—", worstZone ? `${worstZone.zone_id} · P90 기준` : "Zone 데이터 없음"),
-    metric(kpiLabel("expected_stockout_date"), so ? so.p50 : "소진 없음", so ? `${so.sku} · 발생확률 ${pct(so.occurrence_prob)}` : ""),
-  ].join("");
+function renderStockoutList(d) {
+  const el = $("#stockout-list"); if (!el) return;
+  const oos = d.out_of_stock_items || [], within = d.stockout_within_week_items || [];
+  let html = "";
+  // 품절(재고 0) — 소진 예상과 별도 표기
+  html += `<div class="so-sub">🚫 품절 (재고 0) ${d.out_of_stock_count ?? 0}건</div>`;
+  html += oos.length
+    ? `<table><thead><tr><th>SKU</th><th>일평균 소진</th></tr></thead><tbody>
+        ${oos.map((it) => `<tr><td>${it.sku}</td><td class="num">${it.avg_daily_demand}</td></tr>`).join("")}</tbody></table>`
+    : `<div class="kpi-empty">품절 SKU 없음</div>`;
+  // 1주 내 소진 예상(재고>0)
+  html += `<div class="so-sub">⏳ 1주 내 소진 예상 (재고>0) ${d.stockout_within_week_count ?? 0}건</div>`;
+  html += within.length
+    ? `<table><thead><tr><th>SKU</th><th>현재고</th><th>일평균 소진</th><th>소진까지(일)</th></tr></thead><tbody>
+        ${within.map((it) => `<tr><td>${it.sku}</td><td class="num">${it.qty}</td><td class="num">${it.avg_daily_demand}</td><td class="num">${it.days_left}</td></tr>`).join("")}</tbody></table>`
+    : `<div class="kpi-empty">1주 내 소진 예상 SKU 없음</div>`;
+  el.innerHTML = html;
+}
 
-  const rows = (r.kpis || []).map((x) => {
-    const target = x.zone_id || x.sku || "";
-    const vals = [];
-    if (x.mean != null) vals.push(`mean ${x.unit === "percent" ? pct(x.mean) : fmtNum(x.mean, 2)}`);
-    if (x.p50 != null) vals.push(`p50 ${typeof x.p50 === "number" && x.unit === "percent" ? pct(x.p50) : x.p50}`);
-    if (x.p90 != null) vals.push(`p90 ${typeof x.p90 === "number" && x.unit === "percent" ? pct(x.p90) : x.p90}`);
-    if (x.occurrence_prob != null) vals.push(`prob ${pct(x.occurrence_prob)}`);
-    return `<tr><td>${kpiLabel(x.kpi_name)}<div class="metric-note">${kpiDesc(x.kpi_name)}</div></td><td>${target}</td><td>${vals.join("<br>") || "—"}</td><td>${KPI_META[x.kpi_name]?.unit || x.unit || ""}</td></tr>`;
-  }).join("");
-  $("#sim-kpi-table").innerHTML = `
-    <table><thead><tr><th>KPI</th><th>대상</th><th>값</th><th>단위</th></tr></thead><tbody>${rows}</tbody></table>`;
+async function loadUtilizationTrend() {
+  const r = await fetch("/kpi/trend/utilization?days=7").then((x) => x.json()).catch(() => null);
+  const el = $("#util-trend-chart"); if (!el) return;
+  if (!r || !r.series || !r.series.length) { el.innerHTML = `<div class="kpi-empty">데이터 없음</div>`; return; }
+  const target = (LAST.kpiTargets && LAST.kpiTargets.kpi_target_utilization) ?? 0.9;
+  svgLine(el, {
+    labels: r.series.map((x) => x.date.slice(5)),
+    series: [{ name: "가동률", color: "#2f6bff", area: true,
+               values: r.series.map((x) => x.value == null ? null : Math.round(x.value * 100)) }],
+    hlines: [{ y: Math.round(target * 100), label: "목표", color: "#e1483b" }],
+  });
+}
+
+async function loadDelayTrend() {
+  const r = await fetch("/kpi/trend/delays?days=7").then((x) => x.json()).catch(() => null);
+  const el = $("#delay-trend-chart"); if (!el) return;
+  if (!r || !r.series || !r.series.length) { el.innerHTML = `<div class="kpi-empty">데이터 없음</div>`; return; }
+  svgBars(el, r.series.map((x) => ({
+    label: x.date.slice(5),
+    bars: [
+      { name: "출고지연", value: x.shipping_delay_count, color: "#e1483b" },
+      { name: "적치지연", value: x.putaway_delay_count, color: "#f0a13a" },
+    ],
+  })));
 }
 
 function renderKpiDashboard() {
   const sub = $("#kpi-board-sub");
-  if (sub) {
-    const v = LAST.result ? `${LAST.result.version_name} · ${LAST.result.run_type}` : "시뮬레이션 미실행";
-    sub.textContent = `운영 KPI와 최신 시뮬레이션 KPI를 함께 확인합니다. 현재 시뮬레이션: ${v}`;
-  }
-  if (LAST.operationKpis) renderOpsKpis();
-  renderSimKpiDashboard();
+  const d = LAST.kpiDashboard;
+  if (sub) sub.textContent = `실제 운영 데이터 기준 KPI입니다. 기준일: ${d && d.reference_date ? d.reference_date : "-"}`;
+  if (d) renderOpsKpis();
 }
 
 let DATA = { dataset: "snapshot", poll: null };
@@ -328,9 +347,10 @@ function svgLine(el, cfg) {
   node.addEventListener("mouseleave", () => { tip.style.display = "none"; });
 }
 
-function svgBars(el, groups) {
+function svgBars(el, groups, opts = {}) {
   const W = 560, H = 250, pl = 46, pr = 14, pt = 16, pb = 36, gap = 40;
   const allv = groups.flatMap((g) => g.bars.map((b) => b.value));
+  if (opts.hline) allv.push(opts.hline.y);
   const mx = Math.max(...allv, 1);
   const gw = (W - pl - pr - gap * (groups.length - 1)) / groups.length;
   const Y = (v) => pt + (1 - v / mx) * (H - pt - pb);
@@ -345,8 +365,13 @@ function svgBars(el, groups) {
     });
     svg += `<text x="${gx + gw / 2}" y="${H - 12}" font-size="10" fill="#5d6573" text-anchor="middle">${grp.label}</text>`;
   });
+  if (opts.hline) {
+    const hy = Y(opts.hline.y);
+    svg += `<line x1="${pl}" y1="${hy}" x2="${W - pr}" y2="${hy}" stroke="${opts.hline.color || "#e1483b"}" stroke-width="1.5" stroke-dasharray="5 4"/>`;
+  }
   svg += `</svg>`;
-  const names = groups[0].bars.map((b) => `<span><i style="border-color:${b.color};border-top-width:8px"></i>${b.name}</span>`).join("");
+  const names = groups[0].bars.map((b) => `<span><i style="border-color:${b.color};border-top-width:8px"></i>${b.name}</span>`).join("")
+    + (opts.hline ? `<span><i style="border-color:${opts.hline.color || "#e1483b"};border-top-style:dashed"></i>${opts.hline.label || "목표"}</span>` : "");
   el.innerHTML = svg + `<div class="chart-legend">${names}</div>`;
 }
 
@@ -541,6 +566,11 @@ function activateTab(name) {
   if (name === "trace") { loadTraces().catch(() => {}); loadSessionInto(TRACE_CTX).catch(() => {}); }
   if (name === "auto") enterAuto();
   if (name === "data") { refreshDataBrowser().catch(() => {}); enterData(); }
+  if (name === "kpi") {
+    loadKpiTargets().then(loadOperationKpis).catch(() => {});
+    loadUtilizationTrend().catch(() => {});
+    loadDelayTrend().catch(() => {});
+  }
 }
 function setupTabs() {
   document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => activateTab(t.dataset.tab)));
@@ -566,6 +596,7 @@ const TW_W = 560, TW_H = 300, TW_XMIN = -1, TW_XMAX = 3, TW_YMIN = -1.2, TW_YMAX
 const txc = (x) => ((x - TW_XMIN) / (TW_XMAX - TW_XMIN)) * TW_W;
 const tyc = (y) => (1 - (y - TW_YMIN) / (TW_YMAX - TW_YMIN)) * TW_H;
 const STATE_COLOR = { MOVING: "#1f77b4", WORKING: "#d62728", IDLE: "#999999" };
+const JOB_META = { INBOUND: { color: "#028090", icon: "📥", label: "적치" }, OUTBOUND: { color: "#f0a13a", icon: "🛒", label: "피킹" } };
 function occColor(r) {
   r = Math.max(0, Math.min(r || 0, 1));
   return `rgb(255,${Math.round(255 * (1 - r) ** 1.6)},${Math.round(255 * (1 - r) ** 1.9)})`;
@@ -593,12 +624,15 @@ function twFrameSvg(i) {
   // entrance
   s += `<text x="${txc(TW.entrance[0])}" y="${tyc(TW.entrance[1]) + 16}" font-size="10" fill="#333" text-anchor="middle">입구</text>`;
   s += `<polygon points="${txc(TW.entrance[0])},${tyc(TW.entrance[1]) - 2} ${txc(TW.entrance[0]) - 6},${tyc(TW.entrance[1]) + 8} ${txc(TW.entrance[0]) + 6},${tyc(TW.entrance[1]) + 8}" fill="#333"/>`;
-  // teams
+  // teams — 작업 중이면 적치(청록)/피킹(주황)으로 링 색 구분 + 작업 배지
   (f.teams || []).forEach((m) => {
-    const cx = txc(m.x), cy = tyc(m.y), col = STATE_COLOR[m.state] || "#999";
+    const cx = txc(m.x), cy = tyc(m.y);
+    const jm = m.state === "WORKING" && m.job ? JOB_META[m.job] : null;
+    const col = jm ? jm.color : (STATE_COLOR[m.state] || "#999");
     s += `<circle cx="${cx}" cy="${cy}" r="12" fill="${col}" fill-opacity="0.16" stroke="${col}" stroke-width="1.6"/>`;
     s += `<text x="${cx}" y="${cy + 5}" font-size="14" text-anchor="middle">🚜</text>`;
     s += `<text x="${cx}" y="${cy - 14}" font-size="12" fill="${col}" text-anchor="middle">${dirArrow(m.heading)}</text>`;
+    if (jm) s += `<text x="${cx + 13}" y="${cy - 7}" font-size="12" text-anchor="middle">${jm.icon}</text>`;
   });
   s += `</svg>`;
   return s;
@@ -1106,14 +1140,14 @@ const AGENTS = [
   { id: "PickingAgent", label: "피킹", emoji: "🛒", kind: "dom" },
   { id: "OutboundAgent", label: "출고", emoji: "🚚", kind: "dom" },
   { id: "ResourceAgent", label: "자원배정", emoji: "👷", kind: "dom" },
-  { id: "InventoryRiskAgent", label: "재고위험", emoji: "⚠️", kind: "dom" },
+  { id: "AutoOrderAgent", label: "자동발주", emoji: "📦", kind: "dom" },
   { id: "ControlAgent", label: "컨트롤", emoji: "🧭", kind: "inf" },
   { id: "PolicyAgent", label: "정책", emoji: "🛡️", kind: "inf" },
   { id: "SimulationAgent", label: "시뮬레이션", emoji: "🧊", kind: "inf" },
   { id: "ExplanationAgent", label: "설명", emoji: "💬", kind: "inf" },
 ];
 const AGENT_BY_ID = Object.fromEntries(AGENTS.map((a) => [a.id, a]));
-const AUTO = { on: false, seen: new Set(), flash: {}, poll: null, actions: [], booted: false, renderedLogs: new Set(), manualSim: null };
+const AUTO = { on: false, seen: new Set(), flash: {}, poll: null, booted: false, renderedLogs: new Set(), manualSim: null, simRefreshing: false, requests: [], selectedReq: null, capacity: null, explaining: false };
 const PHASE_LABEL = {
   EVENT_RECEIVED: "이벤트 수신", ACTION_CREATED: "Action 생성", POLICY_CHECK: "정책 검토",
   PRECHECK: "사전검증", LOCK_ACQUIRED: "락 확보", EXECUTE: "실행", POSTCHECK: "사후검증", FINISHED: "완료",
@@ -1142,15 +1176,26 @@ function statusBadge(st) {
 function buildAgents() {
   const el = $("#auto-agents"); if (!el || el.childElementCount) return;
   el.innerHTML = AGENTS.map((a) => `<div class="agent-cell ${a.kind}" data-agent="${a.id}">
+      <span class="agent-badge" data-badge="${a.id}" hidden></span>
       <div class="agent-circle">${a.emoji}</div>
       <div class="agent-name">${a.label}</div>
       <div class="agent-sub">${a.id.replace("Agent", "")}</div></div>`).join("");
+}
+function renderAgentBadges() {
+  // 자동발주 원에 '발주 대기(결품)' 건수를 상시 배지로 — 부족 백로그가 쌓여 있음을 한눈에
+  const b = document.querySelector('[data-badge="AutoOrderAgent"]'); if (!b) return;
+  const n = (AUTO.capacity && AUTO.capacity.awaiting_stock) || 0;
+  if (n > 0) { b.textContent = n; b.title = `발주 대기 ${n}건`; b.hidden = false; }
+  else { b.hidden = true; }
 }
 function updateAgentFlash() {
   const el = $("#auto-agents"); if (!el) return;
   const nowt = Date.now();
   el.querySelectorAll(".agent-cell").forEach((c) => {
-    const on = AUTO.flash[c.dataset.agent] && (nowt - AUTO.flash[c.dataset.agent] < 2400);
+    // 시뮬레이션은 DES가 도는 동안, 설명은 LLM 생성 중 계속 켜두고, 그 외는 로그 도착 후 2.4s 점멸
+    const on = (c.dataset.agent === "SimulationAgent" && AUTO.simRefreshing)
+      || (c.dataset.agent === "ExplanationAgent" && AUTO.explaining)
+      || (AUTO.flash[c.dataset.agent] && (nowt - AUTO.flash[c.dataset.agent] < 2400));
     c.classList.toggle("active", !!on);
   });
 }
@@ -1166,18 +1211,93 @@ function autoLogLine(l) {
 }
 
 const hhmmss = (ts) => (ts ? String(ts).split(" ")[1] || String(ts) : "—");
-function renderAutoActions(list) {
-  AUTO.actions = list;
-  const el = $("#auto-actions"); if (!el) return;
-  el.innerHTML = list.length ? list.map((a) => {
-    const ag = AGENT_BY_ID[a.agent_name];
-    const t = hhmmss(a.finished_at || a.started_at || a.created_at);
-    return `<div class="aact" data-id="${a.action_id}"><span class="aact-t">${t}</span>`
-      + `<span class="aact-ag">${ag ? ag.emoji : "•"}</span>`
-      + `<span class="aact-type">${escapeHtml(a.action_type)}</span>`
-      + `<span class="aact-tgt">${escapeHtml(a.target_id || "")}</span>${statusBadge(a.status)}</div>`;
-  }).join("") : `<div class="auto-empty">아직 Action이 없습니다.</div>`;
+
+/* ---------- 실시간 입/출고 요청 + 요청별 생애주기 ---------- */
+const REQ_STATUS_CLS = { done: "ok", in_progress: "run", blocked: "blk", failed: "fail", pending: "mut" };
+function renderRequests(list) {
+  AUTO.requests = list;
+  const el = $("#auto-requests"); if (!el) return;
+  const meta = $("#auto-req-meta"); if (meta) meta.textContent = list.length ? `${list.length}건` : "";
+  if (!list.length) {
+    el.innerHTML = `<div class="auto-empty">‘실시간 수요’를 켜면 입/출고 요청이 실시간으로 쌓입니다.</div>`;
+    return;
+  }
+  const sel = AUTO.selectedReq;
+  el.innerHTML = list.map((r) => {
+    const isOut = r.kind === "outbound";
+    const active = sel && sel.id === r.id ? " active" : "";
+    const cls = r.status === "AWAITING_STOCK" ? "blk" : (r.status === "SHIPPED" || r.status === "STOCKED" ? "ok" : "mut");
+    return `<div class="req-row${active}" data-kind="${r.kind}" data-id="${escapeHtml(r.id)}">
+      <span class="req-kind ${isOut ? "out" : "inb"}">${isOut ? "출고" : "입고"}</span>
+      <span class="req-id">${escapeHtml(r.id)}</span>
+      <span class="req-sub">${escapeHtml(r.sku || "")} ${r.qty != null ? r.qty + "개" : ""}</span>
+      <span class="req-t"><span class="ab ${cls}">${escapeHtml(r.status_label || "—")}</span> · ${hhmmss(r.created_at)}</span></div>`;
+  }).join("");
+  el.querySelectorAll(".req-row").forEach((row) =>
+    row.addEventListener("click", () => selectRequest(row.dataset.kind, row.dataset.id)));
 }
+
+async function selectRequest(kind, id) {
+  AUTO.selectedReq = { kind, id };
+  document.querySelectorAll("#auto-requests .req-row").forEach((r) =>
+    r.classList.toggle("active", r.dataset.id === id));
+  const sub = $("#auto-req-trace-sub"); if (sub) sub.textContent = `${kind === "outbound" ? "출고" : "입고"} ${id}`;
+  const el = $("#auto-req-trace"); if (el) el.innerHTML = `<div class="auto-empty">불러오는 중…</div>`;
+  await refreshTrace();
+}
+async function refreshTrace() {
+  const s = AUTO.selectedReq; if (!s) return;
+  const t = await fetch(`/api/blackboard/requests/${s.kind}/${encodeURIComponent(s.id)}/trace`)
+    .then((r) => r.json()).catch(() => null);
+  if (t && !t.error) renderReqTrace(t);
+}
+function renderReqTrace(t) {
+  const el = $("#auto-req-trace"); if (!el) return;
+  const badgeCls = t.awaiting_stock ? "blk" : "mut";
+  const replBtn = !t.awaiting_stock ? ""
+    : (AUTO.on
+        ? `<button class="btn-ghost repl-now-btn" id="repl-now" data-order="${escapeHtml(t.id)}">🔁 바로 보충</button>`
+        : `<button class="btn-ghost repl-now-btn" id="repl-now" disabled title="자동운영을 켜야 보충할 수 있습니다">🔁 바로 보충 (자동운영 OFF)</button>`);
+  const head = `<div class="req-trace-head">${t.kind === "outbound" ? "🚚 출고" : "📥 입고"} ${escapeHtml(t.id)}
+    <span class="ab ${badgeCls}">${escapeHtml(t.current_status_label || "—")}</span>${replBtn}</div>`;
+  const steps = (t.milestones || []).map((m) => {
+    const cls = REQ_STATUS_CLS[m.status] || "mut";
+    const clickable = m.action_id ? " rt-clickable" : "";
+    const hint = m.action_id ? `<span class="rt-why">왜?</span>` : "";
+    return `<div class="rt-step ${m.status}${clickable}"${m.action_id ? ` data-action="${escapeHtml(m.action_id)}" data-label="${escapeHtml(m.label)}" data-status="${m.status}"` : ""}>
+      <div class="rt-rail"><div class="rt-node ${m.status}"></div><div class="rt-line"></div></div>
+      <div class="rt-body">
+        <div class="rt-label">${escapeHtml(m.label)} <span class="ab ${cls}">${MS_LABEL[m.status] || m.status}</span>${hint}</div>
+        <div class="rt-meta">${m.agent ? escapeHtml(m.agent) : "—"}${m.ts ? " · " + hhmmss(m.ts) : ""}</div>
+        <div class="rt-detail">${escapeHtml(m.detail || "")}</div>
+      </div></div>`;
+  }).join("");
+  el.innerHTML = head + `<div class="rt-timeline">${steps}</div>`;
+  const btn = $("#repl-now");
+  if (btn) btn.addEventListener("click", () => replenishNow(btn.dataset.order));
+  el.querySelectorAll(".rt-step.rt-clickable").forEach((s) =>
+    s.addEventListener("click", () => explainMilestone(
+      s.dataset.action, s.dataset.label, { text: MS_LABEL[s.dataset.status] || "", cls: REQ_STATUS_CLS[s.dataset.status] || "mut" })));
+}
+const MS_LABEL = { done: "완료", in_progress: "진행", blocked: "보류", failed: "실패", pending: "대기" };
+
+async function replenishNow(orderNo) {
+  if (!AUTO.on) { showToast({ kind: "error", id: orderNo, message: "자동운영을 켜야 보충할 수 있습니다." }); return; }
+  const btn = $("#repl-now"); if (btn) { btn.disabled = true; btn.textContent = "보충 중…"; }
+  AUTO.flash.AutoOrderAgent = Date.now(); updateAgentFlash();   // 수동 보충도 자동발주 원 점멸
+  try {
+    const r = await fetch(`/api/blackboard/requests/${encodeURIComponent(orderNo)}/replenish-now`, { method: "POST" })
+      .then((x) => x.json());
+    if (r.error) { showToast({ kind: "error", id: orderNo, message: r.error }); if (btn) { btn.disabled = false; btn.textContent = "🔁 바로 보충"; } return; }
+    const n = (r.stocked || []).reduce((s, x) => s + (x.qty || 0), 0);
+    showToast({ kind: "ok", id: orderNo, message: `가상 보충 완료 — ${n}개 입고 반영, 주문 재개` });
+    AUTO.flash.AutoOrderAgent = Date.now(); updateAgentFlash();
+    await refreshTrace();
+  } catch (_) {
+    if (btn) { btn.disabled = false; btn.textContent = "🔁 바로 보충"; }
+  }
+}
+
 
 function simCountdown(s) {
   if (!s || !s.refresh_seconds) return "";
@@ -1187,9 +1307,16 @@ function simCountdown(s) {
     ? ` · <span class="sim-cd">기준치 갱신까지 ${rem}s</span>`
     : ` · <span class="sim-cd">시뮬레이션 기동중…</span>`;
 }
-function simBody(s) {   // 노동/공간/출고지연 KPI 문자열(카운트다운 제외)
+function laborBody() {   // 노동 신호 = 실시간 작업팀 가용 + 미처리 대기(적치/피킹 별도)
+  const c = AUTO.capacity;
+  if (!c) return `작업팀 <b>—</b>`;
+  const shortCls = c.team_short ? "over" : "";
+  const avail = `작업팀 <b class="${shortCls}">${c.available_teams}/${c.total_teams} 가용</b>${c.team_short ? " 부족" : ""}`;
+  const wait = `대기 피킹 <b class="${c.waiting_picking ? "over" : ""}">${c.waiting_picking}건</b>·적치 <b class="${c.waiting_stocking ? "over" : ""}">${c.waiting_stocking}건</b>`;
+  return `${avail} · ${wait} · 진행중 ${c.in_progress_total}건`;
+}
+function simBody(s) {   // 노동(팀가용)/공간/출고지연 문자열(카운트다운 제외)
   const k = s.kpis || {};
-  const util = k.resource_utilization_team != null ? Math.round(k.resource_utilization_team * 100) + "%" : "—";
   const zb = s.zone_block != null ? s.zone_block : 1;
   const over = Object.entries(s.zone_peak || {}).filter(([, o]) => o >= zb).sort((a, b) => b[1] - a[1]);
   let spaceHtml;
@@ -1200,8 +1327,8 @@ function simBody(s) {   // 노동/공간/출고지연 KPI 문자열(카운트다
     const zone = s.worst_zone_occ != null ? Math.round(s.worst_zone_occ * 100) + "%" : "—";
     spaceHtml = `공간(최대존) <b>${zone}</b>${s.worst_zone ? " " + escapeHtml(s.worst_zone) : ""} 정상`;
   }
-  return `노동(가동률) <b class="${s.labor_ok ? "" : "over"}">${util}</b> ${s.labor_ok ? "정상" : "과부하"} · `
-    + spaceHtml + ` · 출고지연 ${fmtNum(k.shipping_delay_count, 0)}건`;
+  return `${laborBody()} · ` + spaceHtml
+    + ` · 출고지연 ${fmtNum(k.shipping_delay_count, 0)}건 · 적치지연 ${fmtNum(k.putaway_delay_count, 0)}건`;
 }
 function setSimbar(s) {
   const el = $("#auto-simbar"); if (!el) return;
@@ -1237,14 +1364,18 @@ function updateAutoToggle(enabled) {
 
 async function pollAuto() {
   try {
-    const [mode, logs, acts, sim] = await Promise.all([
+    const [mode, logs, sim, reqs, cap] = await Promise.all([
       fetch("/api/auto-mode").then((r) => r.json()),
       fetch("/api/blackboard/audit-logs?limit=60").then((r) => r.json()),
-      fetch("/api/blackboard/actions?limit=40").then((r) => r.json()),
       fetch("/api/blackboard/simulation").then((r) => r.json()).catch(() => null),
+      fetch("/api/blackboard/requests?limit=30").then((r) => r.json()).catch(() => null),
+      fetch("/api/blackboard/capacity").then((r) => r.json()).catch(() => null),
     ]);
     updateAutoToggle((mode.auto_mode_enabled || "false") === "true");
+    AUTO.simRefreshing = !!(sim && sim.refreshing);   // DES 실행 중 — 시뮬레이션 원 지속 하이라이트
+    AUTO.capacity = cap || null;                       // 실시간 작업팀 가용/백로그
     if (sim) setSimbar(sim);
+    if (reqs) renderRequests(reqs.requests || []);
     if ($("#auto-cycle") && document.activeElement !== $("#auto-cycle")) {
       $("#auto-cycle").value = mode.auto_mode_cycle_interval_seconds || 15;
     }
@@ -1266,7 +1397,8 @@ async function pollAuto() {
       $("#auto-log-meta").textContent = `${box.childElementCount}건`;
       if (AUTO.renderedLogs.size > 4000) AUTO.renderedLogs = new Set([...AUTO.renderedLogs].slice(-2000));
     }
-    renderAutoActions(acts.actions || []);
+    if (AUTO.selectedReq) refreshTrace().catch(() => {});   // 선택 요청의 생애주기 라이브 갱신
+    renderAgentBadges();
     updateAgentFlash();
   } catch (_) { /* noop */ }
 }
@@ -1276,17 +1408,22 @@ async function refreshSimbar() {
   catch (_) { setSimbar(null); }
 }
 
-async function selectAutoAction(id) {
-  AUTO.flash.ExplanationAgent = Date.now(); updateAgentFlash();
-  const a = AUTO.actions.find((x) => x.action_id === id) || {};
-  const det = $("#auto-detail");
-  det.innerHTML = `<div class="adet-head">${escapeHtml(a.action_type || "")} · ${escapeHtml(a.target_id || "")} ${statusBadge(a.status || "")}</div><div class="adet-ex muted">설명 생성 중…</div>`;
+// 생애주기 단계(마일스톤) 클릭 → 그 단계 액션의 의사결정 사유(LLM)를 설명 패널에 표시
+async function explainMilestone(actionId, label, statusLabel) {
+  const det = $("#auto-detail"); if (!det) return;
+  const head = `<div class="adet-head">${escapeHtml(label || "")} <span class="ab ${statusLabel && statusLabel.cls || "mut"}">${escapeHtml(statusLabel && statusLabel.text || "")}</span></div>`;
+  det.innerHTML = head + `<div class="adet-ex muted">설명 생성 중…</div>`;
+  AUTO.explaining = true; updateAgentFlash();   // 설명 원 하이라이트(생성 중 유지)
   try {
-    const ex = await fetch(`/api/blackboard/actions/${id}/explanation`).then((r) => r.json());
-    det.innerHTML = `<div class="adet-head">${escapeHtml(a.action_type || "")} · ${escapeHtml(a.target_id || "")} ${statusBadge(a.status || "")}</div>`
+    const ex = await fetch(`/api/blackboard/actions/${actionId}/explanation`).then((r) => r.json());
+    det.innerHTML = head
       + `<div class="adet-ex">${escapeHtml(ex.explanation || ex.error || "설명 없음")}</div>`
       + `<div class="adet-src">출처: ${escapeHtml(ex.source || "-")}</div>`;
-  } catch (e) { det.querySelector(".adet-ex").textContent = "설명 조회 실패"; }
+  } catch (e) {
+    det.innerHTML = head + `<div class="adet-ex">설명 조회 실패</div>`;
+  } finally {
+    AUTO.explaining = false; updateAgentFlash();
+  }
 }
 
 async function toggleAuto() {
@@ -1337,14 +1474,33 @@ function setupAuto() {
         .then(() => refreshSimbar()).catch(() => {});
     });
   });
-  $("#auto-actions").addEventListener("click", (e) => {
-    const c = e.target.closest(".aact"); if (c) selectAutoAction(c.dataset.id).catch(() => {});
-  });
+  // 자동발주 원 클릭 → 발주 대기 주문 세부(배지 숫자의 근거)
   $("#auto-agents").addEventListener("click", (e) => {
     const c = e.target.closest(".agent-cell"); if (!c) return;
-    const first = AUTO.actions.find((a) => a.agent_name === c.dataset.agent);
-    if (first) selectAutoAction(first.action_id).catch(() => {});
+    if (c.dataset.agent === "AutoOrderAgent") showAwaitingOrders().catch(() => {});
   });
+}
+
+async function showAwaitingOrders() {
+  const det = $("#auto-detail"); if (!det) return;
+  const head = `<div class="adet-head">📦 자동발주 — 발주 대기 주문</div>`;
+  det.innerHTML = head + `<div class="adet-ex muted">불러오는 중…</div>`;
+  const r = await fetch("/api/blackboard/awaiting-orders").then((x) => x.json()).catch(() => null);
+  const orders = (r && r.orders) || [];
+  if (!orders.length) {
+    det.innerHTML = `<div class="adet-head">📦 자동발주 — 발주 대기 주문</div><div class="adet-ex">발주 대기 주문이 없습니다.</div>`;
+    return;
+  }
+  det.innerHTML = `<div class="adet-head">📦 자동발주 — 발주 대기 ${orders.length}건 <span class="head-sub">클릭하면 생애주기</span></div>`
+    + `<div class="awo-list">` + orders.map((o) => {
+      const inb = (o.replenishments || []).map((i) =>
+        `${escapeHtml(i.sku)} ${i.qty}개 · 도착예정 ${escapeHtml(i.expected_date)} <span class="ab ${i.status === "STOCKED" ? "ok" : "blk"}">${escapeHtml(i.status)}</span>`).join("<br>");
+      return `<div class="awo-row" data-order="${escapeHtml(o.order_no)}">
+        <div class="awo-id">${escapeHtml(o.order_no)} <span class="req-t">${hhmmss(o.created_at)}</span></div>
+        <div class="awo-inb">${inb || "발주분 없음"}</div></div>`;
+    }).join("") + `</div>`;
+  det.querySelectorAll(".awo-row").forEach((row) =>
+    row.addEventListener("click", () => selectRequest("outbound", row.dataset.order)));
 }
 
 async function syncLive() {
@@ -1371,7 +1527,14 @@ async function init() {
   const nc = $("#new-chat"); if (nc) nc.addEventListener("click", () => { activateTab("chat"); resetChat(); });
   $("#run-sim").addEventListener("click", runSim);
   $("#refresh").addEventListener("click", refreshDashboard);
-  $("#refresh-kpi").addEventListener("click", () => loadOperationKpis().catch(() => {}));
+  $("#refresh-kpi").addEventListener("click", () => {
+    loadKpiTargets().then(loadOperationKpis).catch(() => {});
+    loadUtilizationTrend().catch(() => {});
+    loadDelayTrend().catch(() => {});
+  });
+  const tz = $("#target-zone-occupancy"), tu = $("#target-utilization");
+  if (tz) tz.addEventListener("change", () => saveKpiTarget("kpi_target_zone_occupancy", tz.value));
+  if (tu) tu.addEventListener("change", () => saveKpiTarget("kpi_target_utilization", tu.value));
   $("#refresh-data").addEventListener("click", refreshDataBrowser);
   const ra = $("#refresh-approval"); if (ra) ra.addEventListener("click", () => loadApproval().catch(() => {}));
   const rt = $("#refresh-trace"); if (rt) rt.addEventListener("click", () => { TRACE.runId = null; loadTraces().catch(() => {}); });
@@ -1380,7 +1543,10 @@ async function init() {
   $("#tw-range").addEventListener("input", (e) => { if (TW.timer) twTogglePlay(); twSetFrame(Number(e.target.value)); });
   await loadZoneTypes().catch(() => {});
   await loadResources();
+  await loadKpiTargets().catch(() => {});
   await loadOperationKpis().catch(() => {});
+  loadUtilizationTrend().catch(() => {});
+  loadDelayTrend().catch(() => {});
   await refreshDataBrowser().catch(() => {});
   await runSim();
 }

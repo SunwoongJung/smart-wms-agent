@@ -100,7 +100,8 @@
               </div>
               <div class="tw-svg" id="tw-svg">불러오는 중...</div>
               <div class="tw-legend">
-                <span><i class="dot mv"></i>이동</span><span><i class="dot wk"></i>작업</span>
+                <span><i class="dot mv"></i>이동</span>
+                <span><i class="dot pk"></i>📥 적치</span><span><i class="dot pc"></i>🛒 피킹</span>
                 <span><i class="dot id"></i>유휴</span><span class="sep">|</span>
                 <span class="cold-leg">❄ 냉장 존</span><span class="sep">|</span>
                 <span class="occ-scale">점유율 낮음<i class="occ-bar"></i>높음</span>
@@ -140,7 +141,7 @@
           <div class="kpi-board-head">
             <div>
               <div class="kpi-board-title">KPI Dashboard</div>
-              <div class="kpi-board-sub" id="kpi-board-sub">운영 KPI와 최신 시뮬레이션 KPI를 함께 확인합니다.</div>
+              <div class="kpi-board-sub" id="kpi-board-sub">실제 운영 데이터 기준 KPI입니다.</div>
             </div>
             <button class="btn-ghost" id="refresh-kpi">KPI 새로고침</button>
           </div>
@@ -149,20 +150,26 @@
 
           <div class="grid-2">
             <div class="card panel-min">
-              <div class="panel-head">Zone 점유율</div>
+              <div class="panel-head panel-head-flex">
+                <span>Zone 점유율</span>
+                <span class="target-input">목표 <input type="number" id="target-zone-occupancy" min="0" max="100" step="1" />%</span>
+              </div>
               <div class="panel-body"><div id="zone-kpi-chart" class="chart-wrap">불러오는 중...</div></div>
             </div>
             <div class="card panel-min">
-              <div class="panel-head">시뮬레이션 KPI</div>
-              <div class="panel-body"><div id="sim-kpi-grid" class="metric-grid">시뮬레이션 실행 후 표시됩니다.</div></div>
+              <div class="panel-head panel-head-flex">
+                <span>작업팀 가동률 (최근 7일)</span>
+                <span class="target-input">목표 <input type="number" id="target-utilization" min="0" max="100" step="1" />%</span>
+              </div>
+              <div class="panel-body"><div id="util-trend-chart" class="chart-wrap">불러오는 중...</div></div>
             </div>
             <div class="card panel-min">
-              <div class="panel-head">운영 KPI 상세</div>
-              <div class="panel-body"><div id="ops-kpi-table" class="kpi-table">불러오는 중...</div></div>
+              <div class="panel-head">출고지연 · 적치지연 (최근 7일)</div>
+              <div class="panel-body"><div id="delay-trend-chart" class="chart-wrap">불러오는 중...</div></div>
             </div>
             <div class="card panel-min">
-              <div class="panel-head">시뮬레이션 KPI 상세</div>
-              <div class="panel-body"><div id="sim-kpi-table" class="kpi-table">시뮬레이션 실행 후 표시됩니다.</div></div>
+              <div class="panel-head">1주 내 소진 예상 재고 목록</div>
+              <div class="panel-body"><div id="stockout-list" class="kpi-table">불러오는 중...</div></div>
             </div>
           </div>
         </div>
@@ -243,7 +250,7 @@
         <div class="kpi-board-head">
           <div>
             <div class="kpi-board-title">창고 자동운영 <span class="auto-pill" id="auto-pill">OFF</span></div>
-            <div class="kpi-board-sub">실시간 이벤트를 10개 에이전트가 블랙보드로 협업해 자동 처리합니다 — 정책 가드레일·예약 단일출처·배치 시뮬레이션 게이트 적용.</div>
+            <div class="kpi-board-sub">시뮬레이션으로 예측한 근미래 리소스 가동률과 예상 존 점유율을 기준으로, 입/출고를 처리할지 보류할지 자동 판단합니다.</div>
           </div>
           <div class="auto-controls">
             <label class="auto-cyc" title="컨트롤 에이전트가 새 이벤트를 확인·처리하는 간격">이벤트 확인 주기 <input type="number" id="auto-cycle" min="2" max="600" value="15"> 초</label>
@@ -269,17 +276,24 @@
 
         <div class="grid-2 auto-grid">
           <div class="card panel-min">
+            <div class="panel-head">실시간 입/출고 요청 <span class="head-sub" id="auto-req-meta"></span></div>
+            <div class="panel-body"><div class="auto-reqs" id="auto-requests">‘실시간 수요’를 켜면 입/출고 요청이 실시간으로 쌓입니다.</div></div>
+          </div>
+          <div class="card panel-min">
+            <div class="panel-head">선택 요청 생애주기 <span class="head-sub" id="auto-req-trace-sub">요청을 선택하세요</span></div>
+            <div class="panel-body"><div class="req-trace" id="auto-req-trace">좌측 요청을 클릭하면 그 한 건의 처리 과정이 단계별로 표시됩니다.</div></div>
+          </div>
+        </div>
+
+        <div class="grid-2 auto-grid">
+          <div class="card panel-min">
             <div class="panel-head">실시간 동작 로그 <span class="head-sub" id="auto-log-meta"></span></div>
             <div class="panel-body"><div class="auto-log" id="auto-log">자동운영을 시작하거나 ‘1회 실행’을 눌러보세요.</div></div>
           </div>
           <div class="card panel-min">
-            <div class="panel-head">Action 타임라인 <span class="head-sub">클릭하면 한국어 설명</span></div>
-            <div class="panel-body"><div class="auto-actions" id="auto-actions">—</div></div>
+            <div class="panel-head">💬 단계 설명 <span class="head-sub">생애주기 단계를 클릭하면 그 의사결정 사유(LLM)</span></div>
+            <div class="panel-body"><div class="auto-detail" id="auto-detail">위 ‘선택 요청 생애주기’에서 단계를 클릭하세요.</div></div>
           </div>
-        </div>
-        <div class="card panel-min">
-          <div class="panel-head">💬 설명 <span class="head-sub">선택한 Action의 자동 의사결정 사유(LLM)</span></div>
-          <div class="panel-body"><div class="auto-detail" id="auto-detail">Action을 선택하세요.</div></div>
         </div>
       </section>
     </main>

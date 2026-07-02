@@ -152,7 +152,7 @@ def _run_once(rep, horizon_days, near_days, scenario, record=False):
 
     metrics = {"picking_waits": [], "shipping_delays": 0, "delay_cost": 0.0, "orders": 0,
                "stockout_min": {}, "zone_max_occ": {z: 0.0 for z in zones},
-               "team_busy": 0.0}
+               "team_busy": 0.0, "putaway_delays": 0, "inbound_count": 0}
     events, ts, inv_proj = [], [], []
 
     def touch_zone_peak():
@@ -162,12 +162,15 @@ def _run_once(rep, horizon_days, near_days, scenario, record=False):
 
     def inbound_proc(sku, qty, arrive):
         yield env.timeout(arrive)
+        metrics["inbound_count"] += 1
         # 한 팀이 입고처리 + 적치를 수행(이동 포함)
         req = teams.request()
         yield req
         t = _sample_time(ptp["INBOUND"], rng) + _sample_time(ptp["STOCKING"], rng)
         yield from work_delay(env, t, metrics)   # 업무시간(09-18)만 작업
         teams.release(req)
+        if env.now // MIN_PER_DAY > arrive // MIN_PER_DAY:   # 입고 당일에 적치 미완료 = 적치지연
+            metrics["putaway_delays"] += 1
         zid = sku_zone.get(sku) or _target_zone(products, zones, sku)
         cap = zones[zid]["max_capacity"]
         free = max(0, cap - zone_occ[zid]) if cap else qty
@@ -293,6 +296,7 @@ def _run_once(rep, horizon_days, near_days, scenario, record=False):
         "zone_max_occ": metrics["zone_max_occ"],
         "stockout_day": {s: int(m // MIN_PER_DAY) + 1 for s, m in metrics["stockout_min"].items()},
         "util_team": util_team,
+        "putaway_delays": metrics["putaway_delays"],
     }
     if record:
         out["_events"], out["_ts"], out["_inv"] = events, ts, inv_proj
@@ -333,6 +337,7 @@ def run_des_simulation(horizon_days: int = 14, near_future_days: int | None = No
     costs = [r.get("delay_cost", 0) for r in runs]
     waits = [r["picking_wait_avg"] for r in runs]
     util_t = [r["util_team"] for r in runs]
+    putaway_delays = [r.get("putaway_delays", 0) for r in runs]
     zones = list(rep0["zone_max_occ"].keys())
 
     kpis = [
@@ -344,6 +349,9 @@ def run_des_simulation(horizon_days: int = 14, near_future_days: int | None = No
         {"kpi_name": "picking_wait_minutes", "p50": round(_pctl(waits, 50), 1),
          "p90": round(_pctl(waits, 90), 1), "unit": "minutes"},
         {"kpi_name": "resource_utilization_team", "mean": round(statistics.mean(util_t), 3), "unit": "percent"},
+        # 표기 전용(게이트 미사용) — bb/simulation_agent.py에서 노동/공간 판정에는 반영하지 않음
+        {"kpi_name": "putaway_delay_count", "mean": round(statistics.mean(putaway_delays), 2),
+         "p90": _pctl(putaway_delays, 90), "unit": "count"},
     ]
     for z in zones:
         vals = [r["zone_max_occ"][z] for r in runs]

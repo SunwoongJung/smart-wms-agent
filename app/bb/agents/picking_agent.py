@@ -3,6 +3,7 @@
 빌드 6~8: NEW_OUTBOUND_ORDER → CREATE_PICKING_TASK(예약 포함, executor가 실행).
 가용/우선순위 판단은 기존 tools(allocation·picking)를 재사용한다.
 """
+from bb import reservations
 from tools.common import q
 
 NAME = "PickingAgent"
@@ -21,6 +22,9 @@ def propose(event: dict) -> list[dict]:
         return []
     lines = q("SELECT sku, qty FROM outbound_order_lines WHERE order_no=?", (order_no,))
     if not lines:
+        return []
+    # 가용재고 부족분이 있으면 피킹을 제안하지 않는다(AutoOrderAgent가 발주·대기 처리).
+    if any(reservations.available(ln["sku"]) < ln["qty"] for ln in lines):
         return []
     skus = list(dict.fromkeys(l["sku"] for l in lines))
     o = q("SELECT customer_priority, due_datetime FROM outbound_orders WHERE order_no=?", (order_no,))

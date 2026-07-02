@@ -19,7 +19,7 @@ import trace_store
 from agent.graph import run as agent_run, stream_run
 from config import settings
 from sim import des, forecast, versions, whatif
-from tools import drafts, lookups, picking, stocking
+from tools import dashboard_settings, drafts, kpi_dashboard, lookups, picking, stocking
 from tools.common import q
 
 app = FastAPI(title="WOONG AI API", version="0.1")
@@ -27,7 +27,8 @@ app = FastAPI(title="WOONG AI API", version="0.1")
 from bb.routes import router as bb_router  # noqa: E402  블랙보드/Auto Mode 라우터
 app.include_router(bb_router)
 
-from db.database import ensure_row_timestamps  # noqa: E402
+from db.database import ensure_row_timestamps, init_db  # noqa: E402
+init_db()   # schema.sql 재적용(IF NOT EXISTS라 기존 데이터 보존, 신규 테이블만 생성)
 ensure_row_timestamps()   # 전 테이블 created_at/updated_at + 자동 채움 트리거 보장
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
@@ -105,6 +106,11 @@ class SimulateReq(BaseModel):
 class KpiReq(BaseModel):
     kpis: list[str] | None = None
     target_date: str | None = None
+
+
+class KpiTargetReq(BaseModel):
+    key: str
+    value: float
 
 
 class StockingDraftReq(BaseModel):
@@ -407,6 +413,35 @@ def simulation_compare(base: str, target: str):
 def kpi(r: KpiReq):
     kpis = r.kpis or ["zone_occupancy", "saturated_zone_count", "safety_stock_below_count"]
     return lookups.query_operation_kpis(kpis, r.target_date)
+
+
+@app.get("/kpi/dashboard")
+def kpi_dashboard_summary():
+    """KPI Dashboard 상단 카드 7종 — 전부 실데이터, 기준일=어제(reference_date)."""
+    return kpi_dashboard.dashboard_summary(dashboard_settings.get_all())
+
+
+@app.get("/kpi/targets")
+def kpi_targets():
+    return dashboard_settings.get_all()
+
+
+@app.post("/kpi/targets")
+def kpi_targets_set(r: KpiTargetReq):
+    dashboard_settings.set_value(r.key, r.value)
+    return dashboard_settings.get_all()
+
+
+@app.get("/kpi/trend/utilization")
+def kpi_trend_utilization(days: int = 7):
+    return {"reference_date": kpi_dashboard.reference_date(),
+            "series": kpi_dashboard.team_utilization_trend(days=max(1, min(days, 30)))}
+
+
+@app.get("/kpi/trend/delays")
+def kpi_trend_delays(days: int = 7):
+    return {"reference_date": kpi_dashboard.reference_date(),
+            "series": kpi_dashboard.delay_trend(days=max(1, min(days, 30)))}
 
 
 @app.post("/stocking/draft")

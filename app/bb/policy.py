@@ -6,7 +6,9 @@ import json
 
 AUTO_ALLOWED = {
     "CREATE_INBOUND_TASK", "CREATE_PUTAWAY_TASK", "CREATE_PICKING_TASK",
-    "REPRIORITIZE_PICKING_TASK", "CREATE_SHIPPING_TASK", "ALLOCATE_WORKER",
+    "REPRIORITIZE_PICKING_TASK", "CREATE_SHIPPING_TASK",
+    "ALLOCATE_TEAM", "START_ZONE_WORK", "FINISH_ZONE_LEG",
+    "PLACE_REPLENISHMENT_ORDER",
 }
 AUTO_BLOCKED = {
     "ADJUST_INVENTORY", "CANCEL_ORDER", "CANCEL_SHIPMENT", "CONFIRM_SHIPPING_COMPLETE",
@@ -25,10 +27,14 @@ def lock_keys(action: dict) -> list[str]:
         keys = [f"inbound:{p.get('inbound_no')}"]
     elif at == "CREATE_SHIPPING_TASK":
         keys = [f"order:{p.get('order_no')}"]
+    elif at == "PLACE_REPLENISHMENT_ORDER":
+        keys = [f"order:{p.get('order_no')}"]
     elif at == "REPRIORITIZE_PICKING_TASK":
         keys = [f"task:{p.get('task_id')}"]
-    elif at == "ALLOCATE_WORKER":
-        keys = [f"worker:{p.get('resource_id')}", f"task:{p.get('task_id')}"]
+    elif at == "ALLOCATE_TEAM":
+        keys = [f"task:{p.get('task_id')}"]
+    elif at in ("START_ZONE_WORK", "FINISH_ZONE_LEG"):
+        keys = [f"task:{p.get('task_id')}", f"zone:{p.get('zone_id')}"]
     else:
         keys = []
     return [k for k in keys if not k.endswith(":None")]

@@ -6,7 +6,7 @@ run_once(): 1 사이클(테스트 가능). run_forever(): 별도 스레드에서
 import threading
 import time
 
-from bb import actions, audit, events, executor, settings, simulation_agent
+from bb import actions, audit, backorder, events, executor, settings, simulation_agent, zone_scheduler
 from bb.agents import REGISTRY
 from bb.store import ensure_schema, now
 
@@ -51,14 +51,26 @@ def run_once(force: bool = False, step_delay: float | None = None) -> dict:
     budget = settings.max_actions_per_cycle()
     out = {"enabled": True, "events": 0, "created": [], "executed": []}
 
-    # 배치 What-if 게이트 — 캐시(논블로킹). DES는 백그라운드에서 갱신되어 흐름을 막지 않음.
+    # 배치 What-if 게이트 — 캐시(논블로킹) 확인만. 오래됐으면 gate()가 백그라운드 갱신을 트리거하고,
+    # 그 실제 실행 구간의 감사로그(SimulationAgent)는 simulation_agent.evaluate()가 직접 남긴다.
     sim_gate = {"ok": True, "ran": False, "reason": "시뮬 미사용", "kpis": {}}
     if settings.simulation_required() and events.new_events(limit=1):
         sim_gate = simulation_agent.gate()
-        if sim_gate.get("ran"):
-            audit.log("PRECHECK", "OK" if sim_gate["ok"] else "BLOCKED",
-                      agent_name="SimulationAgent", action_type="BATCH_SIMULATION", message=sim_gate["reason"])
+        # 워밍업 대기: 첫 배치 시뮬 결과가 아직 없으면(ts is None — 첫 DES 진행중) 이번 사이클을 통째로
+        # 보류한다. 이벤트를 NEW로 보존해 첫 시뮬 완료 후 사이클에서 처리 → 예측 없이 일감을 내보내지
+        # 않는다. (DES 오류로 ts는 있으나 ran=False인 경우는 기존 fail-open 정책대로 진행 — 영구 데드락 방지)
+        if settings.enabled() and sim_gate.get("ts") is None:
+            out["simulation"] = sim_gate
+            out["warmup"] = True
+            out["reason"] = "시뮬레이션 워밍업 — 첫 배치 시뮬 완료 대기(이벤트 보존)"
+            audit.log("PRECHECK", "OK", agent_name="SimulationAgent", action_type="BATCH_SIMULATION",
+                      message="시뮬레이션 워밍업 — 첫 배치 시뮬 완료까지 자동처리 대기")
+            return out
     out["simulation"] = sim_gate
+    out["zone_scheduler"] = zone_scheduler.advance()   # 매 사이클: zone 작업 완료/전진 + 대기 작업 시작
+    # 발주 리드타임 경과분 입고 도착 + 재고 채워진 백오더 재개
+    out["arrived"] = backorder.arrive_due_replenishments()
+    out["resumed"] = backorder.resume_fillable()
 
     passes = 0
     while budget > 0 and passes < 100:

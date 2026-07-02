@@ -10,10 +10,10 @@ DES는 수 초가 걸리므로 사이클을 막지 않도록 결과를 캐시한
 import threading
 import time
 
-from bb import settings
+from bb import audit, settings
 
 # 노동/공간 게이트 대상 Action
-LABOR_GATED = {"CREATE_PICKING_TASK", "REPRIORITIZE_PICKING_TASK", "ALLOCATE_WORKER"}
+LABOR_GATED = {"CREATE_PICKING_TASK", "REPRIORITIZE_PICKING_TASK", "ALLOCATE_TEAM"}
 SPACE_GATED = {"CREATE_PUTAWAY_TASK", "CREATE_INBOUND_TASK"}
 SIM_REQUIRED = LABOR_GATED | SPACE_GATED   # 하위호환
 
@@ -30,6 +30,7 @@ def _run_des() -> dict:
     k = {x["kpi_name"]: x for x in r.get("kpis", [])}
     util = (k.get("resource_utilization_team") or {}).get("mean")
     delay = (k.get("shipping_delay_count") or {}).get("mean")
+    putaway_delay = (k.get("putaway_delay_count") or {}).get("mean")  # 표기 전용 — 게이트 판정 미사용
     # 존별 예측 점유율 피크(시뮬 타임시리즈에서 존별 최댓값)
     zone_peak: dict = {}
     for snap in (r.get("zone_occupancy_timeseries") or []):
@@ -37,12 +38,20 @@ def _run_des() -> dict:
             if occ > zone_peak.get(z, 0):
                 zone_peak[z] = occ
     return {"ran": True, "zone_peak": zone_peak, "team_count": r.get("params", {}).get("team_count"),
-            "kpis": {"resource_utilization_team": util, "shipping_delay_count": delay}, "ts": time.time()}
+            "kpis": {"resource_utilization_team": util, "shipping_delay_count": delay,
+                     "putaway_delay_count": putaway_delay}, "ts": time.time()}
 
 
 def evaluate() -> dict:
-    """DES 실행(블로킹) → 원시 KPI 캐시 갱신. 반환은 gate()와 동일 형식."""
+    """DES 실행(블로킹) → 원시 KPI 캐시 갱신. 반환은 gate()와 동일 형식.
+
+    실제로 DES가 도는 이 구간에서만 감사로그를 남긴다(agent_name=SimulationAgent) — 프론트엔드는
+    이 로그로 '시뮬레이션 원'을 깜빡이므로, gate()의 캐시 반환 시점마다 로그를 찍으면 실제 재계산
+    여부와 무관하게 매 사이클 깜빡이는 오표시가 생긴다.
+    """
     global _CACHE
+    audit.log("PRECHECK", "OK", agent_name="SimulationAgent", action_type="BATCH_SIMULATION",
+              message="배치 시뮬레이션 시작")
     try:
         res = _run_des()
     except Exception as e:  # noqa: BLE001 — 실패 시 게이트 통과(자동운영 막지 않음)
@@ -50,7 +59,10 @@ def evaluate() -> dict:
                "error": str(e), "ts": time.time()}
     with _lock:
         _CACHE = res
-    return _decorate(dict(res))
+    dec = _decorate(dict(res))
+    audit.log("PRECHECK", "OK" if dec.get("ok") else "BLOCKED", agent_name="SimulationAgent",
+              action_type="BATCH_SIMULATION", message=dec.get("reason"))
+    return dec
 
 
 def _decorate(c: dict) -> dict:
@@ -65,6 +77,7 @@ def _decorate(c: dict) -> dict:
     c["util_block"], c["zone_block"] = ub, zb
     c["worst_zone"], c["worst_zone_occ"] = worst
     c["refresh_seconds"] = settings.sim_refresh_seconds()   # 다음 갱신 카운트다운용
+    c["refreshing"] = _refreshing   # DES가 실제로 도는 중 — 프론트가 이 상태 동안 시뮬레이션 원을 계속 하이라이트
     if not c.get("ran"):
         c["reason"] = c.get("error") and f"시뮬 생략(오류: {c['error']})" or "시뮬 준비 중"
     else:

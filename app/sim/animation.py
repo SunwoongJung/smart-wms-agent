@@ -203,12 +203,12 @@ def generate_movement(worker_count: int, forklift_count: int, horizon_days: int 
         for i in range(n_teams)
     ]
 
-    def go(team, to, t):
+    def go(team, to, t, job=None):
         for a, b in zip(_aisle_path(team["pos"], to)[:-1], _aisle_path(team["pos"], to)[1:]):
             dur = _euclid(a, b) * MIN_PER_CELL
             if dur <= 0:
                 continue
-            team["segs"].append({"t0": t, "t1": t + dur, "p0": a, "p1": b,
+            team["segs"].append({"t0": t, "t1": t + dur, "p0": a, "p1": b, "job": job,
                                  "state": "MOVING", "heading": _heading(b[0] - a[0], b[1] - a[1])})
             t += dur
         team["pos"] = to
@@ -218,7 +218,8 @@ def generate_movement(worker_count: int, forklift_count: int, horizon_days: int 
         acc = _access(zone)
         cz = ZONE_CENTER[zone]
         h = _heading(cz[0] - acc[0], cz[1] - acc[1])  # Zone 중심 응시
-        team["segs"].append({"t0": t, "t1": t + dur, "p0": acc, "p1": acc, "state": "WORKING", "heading": h})
+        team["segs"].append({"t0": t, "t1": t + dur, "p0": acc, "p1": acc, "state": "WORKING",
+                             "heading": h, "job": job_kind})
         team["work_log"].append({
             "team_id": team["id"] + 1,
             "worker_ids": team["worker_ids"],
@@ -241,13 +242,13 @@ def generate_movement(worker_count: int, forklift_count: int, horizon_days: int 
             t = _normalize_work_time(t, horizon_days)
             if t is None:
                 break
-            t = go(team, _access(z), t)
+            t = go(team, _access(z), t, job["kind"])
             t = _normalize_work_time(t, horizon_days)
             if t is None:
                 break
             t = work_at(team, z, t, stock_t if job["kind"] == "INBOUND" else pick_t * 0.6, job["kind"])
         if t is not None:
-            t = go(team, ENTRANCE, t)  # 입구 복귀(출고/대기)
+            t = go(team, ENTRANCE, t)  # 입구 복귀(출고/대기) — job=None
             team["free"] = t
 
     def pos_at(team, ts):
@@ -255,8 +256,8 @@ def generate_movement(worker_count: int, forklift_count: int, horizon_days: int 
             if s["t0"] <= ts <= s["t1"]:
                 f = (ts - s["t0"]) / (s["t1"] - s["t0"]) if s["t1"] > s["t0"] else 0
                 return (s["p0"][0] + f * (s["p1"][0] - s["p0"][0]),
-                        s["p0"][1] + f * (s["p1"][1] - s["p0"][1]), s["state"], s["heading"])
-        return (ENTRANCE[0], ENTRANCE[1], "IDLE", 0.0)  # 입구 대기, 창고(북쪽) 응시
+                        s["p0"][1] + f * (s["p1"][1] - s["p0"][1]), s["state"], s["heading"], s.get("job"))
+        return (ENTRANCE[0], ENTRANCE[1], "IDLE", 0.0, None)  # 입구 대기, 창고(북쪽) 응시
 
     frame_times = set()
     for d in range(horizon_days):
@@ -274,10 +275,11 @@ def generate_movement(worker_count: int, forklift_count: int, horizon_days: int 
     for idx, ts in enumerate(sorted(frame_times)):
         st = []
         for k, tm in enumerate(teams):
-            x, y, state, hd = pos_at(tm, ts)
+            x, y, state, hd, job = pos_at(tm, ts)
             if state == "IDLE":  # 입구 대기 시 팀별 약간 벌려서
                 x += 0.15 * k
-            st.append({"id": tm["id"] + 1, "x": round(x, 2), "y": round(y, 2), "state": state, "heading": hd})
+            st.append({"id": tm["id"] + 1, "x": round(x, 2), "y": round(y, 2), "state": state,
+                       "heading": hd, "job": job})
         frames.append({"frame_id": f"F{idx:04d}", "time": _label(ts), "teams": st})
     work_log = []
     for tm in teams:

@@ -113,11 +113,52 @@ def simulation_gate():
     return simulation_agent.gate()
 
 
+@router.get("/blackboard/capacity")
+def capacity():
+    """실시간 작업팀 가용/백로그(미처리 대기: 적치·피킹 별도)."""
+    from bb import capacity as cap
+    return cap.snapshot()
+
+
 @router.post("/blackboard/simulation/run")
 def simulation_run():
     """지금 즉시 시뮬레이션 1회 실행(블로킹, 자동운영 OFF여도 강제). 결과 반환."""
     from bb import simulation_agent
     return simulation_agent.evaluate()
+
+
+# ---------- 요청 생애주기(실시간 입/출고 한 건 추적) ----------
+@router.get("/blackboard/requests")
+def request_list(kind: str | None = None, limit: int = 40):
+    """실시간 생성(RT-*) 입/출고 요청 목록(최신순, 현재 상태 포함)."""
+    from bb import lifecycle
+    return {"requests": lifecycle.list_requests(kind, limit)}
+
+
+@router.get("/blackboard/requests/{kind}/{request_id}/trace")
+def request_trace(kind: str, request_id: str):
+    """요청 한 건의 업무 마일스톤 타임라인(파생 뷰)."""
+    from bb import lifecycle
+    return lifecycle.request_trace(kind, request_id)
+
+
+@router.post("/blackboard/requests/{order_no}/replenish-now")
+def replenish_now(order_no: str):
+    """'바로 보충' — 발주 대기 주문의 발주분을 가상 즉시 입고·재고 반영 후 주문 재개.
+
+    자동운영 OFF면 재개(피킹)를 태울 컨트롤 루프가 없어 주문이 어중간하게 멈추므로 거부한다.
+    """
+    from bb import backorder
+    if not settings.enabled():
+        return {"error": "자동운영이 꺼져 있어 보충할 수 없습니다. 자동운영을 먼저 켜주세요."}
+    return backorder.replenish_now(order_no)
+
+
+@router.get("/blackboard/awaiting-orders")
+def awaiting_orders():
+    """자동발주 배지 숫자의 세부 — 발주 대기(AWAITING_STOCK) 출고주문 목록 + 발주분 상세."""
+    from bb import backorder
+    return {"orders": backorder.awaiting_orders()}
 
 
 # ---------- 가용/예약(검증·디버그용) ----------

@@ -264,6 +264,22 @@ CREATE TABLE IF NOT EXISTS rag_logs (
     executed_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
+-- KPI Dashboard(docs 13) 목표량(기준선) 서버 영구 저장 — 모든 사용자 공유
+CREATE TABLE IF NOT EXISTS dashboard_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 작업팀 가동률 등, 실측 완료로그가 없는 과거 구간(운영 시나리오상 미처리 백로그 기간)을
+-- 채우는 가상 과거값. 실측 데이터가 있으면 항상 실측이 우선하고, 없을 때만 폴백으로 사용.
+CREATE TABLE IF NOT EXISTS kpi_synthetic_fill (
+    metric TEXT NOT NULL,
+    fill_date TEXT NOT NULL,
+    value REAL NOT NULL,
+    PRIMARY KEY (metric, fill_date)
+);
+
 -- Index
 CREATE INDEX IF NOT EXISTS idx_inventory_sku ON inventory(sku);
 CREATE INDEX IF NOT EXISTS idx_inventory_location ON inventory(location_id);
